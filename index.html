@@ -27,19 +27,25 @@ label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
 <label for="bass">Bass / Tiefes Brummen: <span id="bassLabel">65%</span></label><input id="bass" type="range" min="0" max="100" value="65"><label for="demo">Testmodus – Gaspedal simulieren: <span id="demoLabel">0%</span></label>
 <input id="demo" type="range" min="0" max="100" value="0"><div class="actions"><button class="secondary" id="demoToggle">Testmodus aktivieren</button></div>
 <small>Im Testmodus steuert der Regler das virtuelle Gaspedal. GPS wird ignoriert.</small></div>
-<div class="panel"><strong>Echte Motoraufnahme</strong><p>WAV, MP3 oder OGG laden – Wiedergabe folgt der simulierten Drehzahl.</p><input id="sampleFile" type="file" accept="audio/*"><p id="sampleStatus">Noch keine Aufnahme geladen.</p></div><div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
+<div class="panel"><strong>V8 Sample-Engine · 4 Drehzahlbereiche</strong><p>Lade vier möglichst gleichmäßige Motoraufnahmen. Die Engine blendet beim Hochdrehen zwischen ihnen über.</p>
+<label>Leerlauf · ca. 850 RPM</label><input type="file" accept="audio/*" data-layer="0"><small id="layer0">Keine Datei</small>
+<label>Niedrige Drehzahl · ca. 2000 RPM</label><input type="file" accept="audio/*" data-layer="1"><small id="layer1">Keine Datei</small>
+<label>Mittlere Drehzahl · ca. 4000 RPM</label><input type="file" accept="audio/*" data-layer="2"><small id="layer2">Keine Datei</small>
+<label>Hohe Drehzahl · ca. 6500 RPM</label><input type="file" accept="audio/*" data-layer="3"><small id="layer3">Keine Datei</small>
+<p id="sampleStatus">Ohne Aufnahmen läuft der synthetische Ersatzsound.</p><small>WAV/MP3/OGG. Die Dateien bleiben lokal im Browser und müssen nach dem Neuladen erneut ausgewählt werden. Idealerweise kurze, gleichmäßige, nahtlos loopbare Aufnahmen verwenden.</small></div>
+<div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
 </main>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-let sampleBuffer=null,sampleSource=null,sampleGain=null;let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
+const layers=[{rpm:850},{rpm:2000},{rpm:4000},{rpm:6500}];let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
 const ratios=[3.5,2.4,1.75,1.35,1.05,0.84],shiftUp=[32,58,88,122,165],shiftDown=[0,24,47,72,100,137];
 let exhaustFilter2, exhaustFilter, intakeFilter, exhaustGain, intakeGain, crackleGain, pulseOsc, pulseGain, noiseSource, rumbleGain, rumbleFilter, rumbleOsc, drive;
 function setupAudio(){
  ctx=new (window.AudioContext||window.webkitAudioContext)();
  output=ctx.createGain();output.gain.value=0;
  compressor=ctx.createDynamicsCompressor();compressor.threshold.value=-20;compressor.knee.value=16;compressor.ratio.value=5;compressor.attack.value=.004;compressor.release.value=.15;
- output.connect(compressor);compressor.connect(ctx.destination);sampleGain=ctx.createGain();sampleGain.connect(output);if(sampleBuffer)playSample();
+ output.connect(compressor);compressor.connect(ctx.destination);for(const layer of layers)if(layer.buffer)startLayer(layer);
  // A pulse-rich exhaust waveform: sharp combustion thump and trailing resonances.
  const N=4096,real=new Float32Array(33),imag=new Float32Array(33);
  for(let k=1;k<=32;k++){const fall=1/Math.pow(k,.88);real[k]=fall*Math.sin(k*.36);imag[k]=fall*Math.cos(k*.36)}
@@ -71,8 +77,24 @@ function setupAudio(){
  const high=ctx.createBiquadFilter();high.type='bandpass';high.frequency.value=420;high.Q.value=.65;
  o.connect(high).connect(g).connect(output);o.start();engineNodes=[{o,g,m:2}];
 }
-function playSample(){if(!ctx||!sampleBuffer)return;if(sampleSource){try{sampleSource.stop()}catch(e){}}sampleSource=ctx.createBufferSource();sampleSource.buffer=sampleBuffer;sampleSource.loop=true;sampleSource.connect(sampleGain);sampleSource.start()}
-$('sampleFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const decoder=ctx||new (window.AudioContext||window.webkitAudioContext)();sampleBuffer=await decoder.decodeAudioData(await file.arrayBuffer());if(ctx)playSample();else await decoder.close();$('sampleStatus').textContent='Geladen: '+file.name+' ('+sampleBuffer.duration.toFixed(1)+' s)'}catch(err){$('sampleStatus').textContent='Fehler: '+err.message}};
+function startLayer(layer){
+ if(!ctx||!layer.buffer)return;
+ if(layer.source){try{layer.source.stop()}catch(e){}}
+ const source=ctx.createBufferSource();source.buffer=layer.buffer;source.loop=true;
+ const gain=ctx.createGain();gain.gain.value=0;source.connect(gain).connect(output);
+ source.start();layer.source=source;layer.gain=gain;
+}
+document.querySelectorAll('[data-layer]').forEach(input=>input.addEventListener('change',async()=>{
+ const index=Number(input.dataset.layer),file=input.files[0];if(!file)return;
+ const layer=layers[index];$('layer'+index).textContent='Lade '+file.name+' …';
+ try{
+ const decoder=ctx||new (window.AudioContext||window.webkitAudioContext)();
+ const buffer=await decoder.decodeAudioData(await file.arrayBuffer());
+ layer.buffer=buffer;if(ctx)startLayer(layer);else await decoder.close();
+ $('layer'+index).textContent='✓ '+file.name+' ('+buffer.duration.toFixed(1)+' s)';
+ $('sampleStatus').textContent=layers.filter(x=>x.buffer).length+' von 4 Bereichen geladen.';
+ }catch(err){$('layer'+index).textContent='Fehler: '+err.message}
+}));
 function setStatus(s){$('status').textContent=s}
 function beginGPS(){
  if(!navigator.geolocation){$('gpsinfo').textContent='GPS nicht verfügbar';return}
@@ -88,7 +110,7 @@ function beginGPS(){
 function stop(){
  started=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}
  if(ctx){const old=ctx;ctx=null;old.close().catch(()=>{})}
- engineNodes=[];sampleSource=null;sampleGain=null;$('start').disabled=false;$('stop').disabled=true;$('mode').textContent='Gestoppt';setStatus('Motor gestoppt');
+ engineNodes=[];for(const layer of layers){layer.source=null;layer.gain=null}$('start').disabled=false;$('stop').disabled=true;$('mode').textContent='Gestoppt';setStatus('Motor gestoppt');
 }
 $('start').onclick=async()=>{
  if(started)return;
@@ -122,7 +144,7 @@ function tick(t){
  exhaustFilter.frequency.setTargetAtTime(210+rpm*.075+gas*430,now,.06);
  exhaustFilter2.frequency.setTargetAtTime(85+rpm*.024,now,.08);
  intakeFilter.frequency.setTargetAtTime(430+rpm*.22+gas*400,now,.08);
- pulseGain.gain.setTargetAtTime(sampleSource?.025:.16+.14*gas,now,.05);
+ pulseGain.gain.setTargetAtTime(loaded.length?.025:.16+.14*gas,now,.05);
  rumbleGain.gain.setTargetAtTime(bass*(.08+.13*gas),now,.06);
  exhaustGain.gain.setTargetAtTime(.035+.065*gas,now,.07);
  intakeGain.gain.setTargetAtTime(.006+.11*gas,now,.07);
@@ -134,4 +156,18 @@ function tick(t){
 }
 document.addEventListener('visibilitychange',()=>{if(started&&document.hidden)setStatus('Browser im Hintergrund – Audio und GPS können eingeschränkt sein.');else if(started)setStatus('Motor läuft.')});
 })();
-</script></body></html>
+</script></body></html
+ const loaded=layers.filter(x=>x.source);
+ if(loaded.length){
+ const sorted=loaded.slice().sort((a,b)=>a.rpm-b.rpm);
+ let low=sorted[0],high=sorted[sorted.length-1],mix=0;
+ if(rpm<=low.rpm){high=low}
+ else if(rpm>=high.rpm){low=high}
+ else for(let i=0;i<sorted.length-1;i++)if(rpm>=sorted[i].rpm&&rpm<sorted[i+1].rpm){low=sorted[i];high=sorted[i+1];mix=(rpm-low.rpm)/(high.rpm-low.rpm);break}
+ for(const layer of loaded){
+ const weight=layer===low&&layer===high?1:layer===low?Math.cos(mix*Math.PI/2):layer===high?Math.sin(mix*Math.PI/2):0;
+ layer.gain.gain.setTargetAtTime(weight*(.42+.30*gas),now,.09);
+ layer.source.playbackRate.setTargetAtTime(clamp(rpm/layer.rpm,.72,1.42),now,.09);
+ }
+ }
+>
