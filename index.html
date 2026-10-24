@@ -156,7 +156,7 @@ function tick(t){
  exhaustFilter.frequency.setTargetAtTime(210+rpm*.075+gas*430,now,.06);
  exhaustFilter2.frequency.setTargetAtTime(85+rpm*.024,now,.08);
  intakeFilter.frequency.setTargetAtTime(430+rpm*.22+gas*400,now,.08);
- pulseGain.gain.setTargetAtTime(loaded.length?.025:.16+.14*gas,now,.05);
+ pulseGain.gain.setTargetAtTime(loaded.length?.10+.07*gas:.16+.14*gas,now,.05);
  rumbleGain.gain.setTargetAtTime(bass*(.08+.13*gas),now,.06);
  exhaustGain.gain.setTargetAtTime(.035+.065*gas,now,.07);
  intakeGain.gain.setTargetAtTime(.006+.11*gas,now,.07);
@@ -169,7 +169,7 @@ function tick(t){
 document.addEventListener('visibilitychange',()=>{if(started&&document.hidden)setStatus('Browser im Hintergrund – Audio und GPS können eingeschränkt sein.');else if(started)setStatus('Motor läuft.')});
 })();
 </script></body></html
- const loaded=layers.filter(x=>x.source||x.element);
+ const loaded=layers.filter(x=>x.source||(x.element&&x.element.readyState>=3&&!x.element.paused));
  if(loaded.length){
  const sorted=loaded.slice().sort((a,b)=>a.rpm-b.rpm);
  let low=sorted[0],high=sorted[sorted.length-1],mix=0;
