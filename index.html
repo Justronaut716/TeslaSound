@@ -27,19 +27,19 @@ label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
 <label for="bass">Bass / Tiefes Brummen: <span id="bassLabel">65%</span></label><input id="bass" type="range" min="0" max="100" value="65"><label for="demo">Testmodus – Gaspedal simulieren: <span id="demoLabel">0%</span></label>
 <input id="demo" type="range" min="0" max="100" value="0"><div class="actions"><button class="secondary" id="demoToggle">Testmodus aktivieren</button></div>
 <small>Im Testmodus steuert der Regler das virtuelle Gaspedal. GPS wird ignoriert.</small></div>
-<div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
+<div class="panel"><strong>Echte Motoraufnahme</strong><p>WAV, MP3 oder OGG laden – Wiedergabe folgt der simulierten Drehzahl.</p><input id="sampleFile" type="file" accept="audio/*"><p id="sampleStatus">Noch keine Aufnahme geladen.</p></div><div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
 </main>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
+let sampleBuffer=null,sampleSource=null,sampleGain=null;let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
 const ratios=[3.5,2.4,1.75,1.35,1.05,0.84],shiftUp=[32,58,88,122,165],shiftDown=[0,24,47,72,100,137];
 let exhaustFilter2, exhaustFilter, intakeFilter, exhaustGain, intakeGain, crackleGain, pulseOsc, pulseGain, noiseSource, rumbleGain, rumbleFilter, rumbleOsc, drive;
 function setupAudio(){
  ctx=new (window.AudioContext||window.webkitAudioContext)();
  output=ctx.createGain();output.gain.value=0;
  compressor=ctx.createDynamicsCompressor();compressor.threshold.value=-20;compressor.knee.value=16;compressor.ratio.value=5;compressor.attack.value=.004;compressor.release.value=.15;
- output.connect(compressor);compressor.connect(ctx.destination);
+ output.connect(compressor);compressor.connect(ctx.destination);sampleGain=ctx.createGain();sampleGain.connect(output);if(sampleBuffer)playSample();
  // A pulse-rich exhaust waveform: sharp combustion thump and trailing resonances.
  const N=4096,real=new Float32Array(33),imag=new Float32Array(33);
  for(let k=1;k<=32;k++){const fall=1/Math.pow(k,.88);real[k]=fall*Math.sin(k*.36);imag[k]=fall*Math.cos(k*.36)}
@@ -71,6 +71,8 @@ function setupAudio(){
  const high=ctx.createBiquadFilter();high.type='bandpass';high.frequency.value=420;high.Q.value=.65;
  o.connect(high).connect(g).connect(output);o.start();engineNodes=[{o,g,m:2}];
 }
+function playSample(){if(!ctx||!sampleBuffer)return;if(sampleSource){try{sampleSource.stop()}catch(e){}}sampleSource=ctx.createBufferSource();sampleSource.buffer=sampleBuffer;sampleSource.loop=true;sampleSource.connect(sampleGain);sampleSource.start()}
+$('sampleFile').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const decoder=ctx||new (window.AudioContext||window.webkitAudioContext)();sampleBuffer=await decoder.decodeAudioData(await file.arrayBuffer());if(ctx)playSample();else await decoder.close();$('sampleStatus').textContent='Geladen: '+file.name+' ('+sampleBuffer.duration.toFixed(1)+' s)'}catch(err){$('sampleStatus').textContent='Fehler: '+err.message}};
 function setStatus(s){$('status').textContent=s}
 function beginGPS(){
  if(!navigator.geolocation){$('gpsinfo').textContent='GPS nicht verfügbar';return}
@@ -86,7 +88,7 @@ function beginGPS(){
 function stop(){
  started=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}
  if(ctx){const old=ctx;ctx=null;old.close().catch(()=>{})}
- engineNodes=[];$('start').disabled=false;$('stop').disabled=true;$('mode').textContent='Gestoppt';setStatus('Motor gestoppt');
+ engineNodes=[];sampleSource=null;sampleGain=null;$('start').disabled=false;$('stop').disabled=true;$('mode').textContent='Gestoppt';setStatus('Motor gestoppt');
 }
 $('start').onclick=async()=>{
  if(started)return;
@@ -113,14 +115,14 @@ function tick(t){
  const desiredRPM=clamp(850+wheelRPM+gas*1050,850,7200);
  rpm+=(desiredRPM-rpm)*clamp(dt*(desiredRPM>rpm?8:5),0,1);
  const now=ctx.currentTime,fireHz=rpm/60*4;
- pulseOsc.frequency.setTargetAtTime(fireHz,now,.035);
+ pulseOsc.frequency.setTargetAtTime(fireHz,now,.035);if(sampleSource){sampleSource.playbackRate.setTargetAtTime(clamp(rpm/2200,.5,2.7),now,.08);sampleGain.gain.setTargetAtTime(.45+.25*gas,now,.06)}
  rumbleOsc.frequency.setTargetAtTime(clamp(fireHz*.5,28,105),now,.05);
  for(const n of engineNodes)n.o.frequency.setTargetAtTime(fireHz*n.m,now,.035);
  const bass=Number($('bass').value)/100, loud=Number($('volume').value)/100;
  exhaustFilter.frequency.setTargetAtTime(210+rpm*.075+gas*430,now,.06);
  exhaustFilter2.frequency.setTargetAtTime(85+rpm*.024,now,.08);
  intakeFilter.frequency.setTargetAtTime(430+rpm*.22+gas*400,now,.08);
- pulseGain.gain.setTargetAtTime(.16+.14*gas,now,.05);
+ pulseGain.gain.setTargetAtTime(sampleSource?.025:.16+.14*gas,now,.05);
  rumbleGain.gain.setTargetAtTime(bass*(.08+.13*gas),now,.06);
  exhaustGain.gain.setTargetAtTime(.035+.065*gas,now,.07);
  intakeGain.gain.setTargetAtTime(.006+.11*gas,now,.07);
