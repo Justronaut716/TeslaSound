@@ -1,6 +1,99 @@
-<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tesla Sound Diagnose</title><style>body{font:16px system-ui;background:#10151d;color:#fff;margin:0;padding:24px;max-width:720px}button{padding:14px;border:0;border-radius:9px;margin:5px;background:#3b82f6;color:white;font-size:16px}.panel{background:#202b3a;padding:16px;border-radius:12px;margin:12px 0}strong{font-size:24px}small{color:#b7c2d2}</style></head><body><h1>Tesla Sound – Diagnose</h1><p>GPS, Sensoren und Audio im Tesla-Browser prüfen. Nur im Stand bedienen.</p><button id="start">GPS & Sensoren starten</button><button id="audio">Audiotest</button><div class="panel">GPS: <strong id="gps">Warten</strong><br><small id="gpsmeta">Noch keine Messung</small></div><div class="panel">Bewegungssensor: <strong id="motion">Warten</strong><br><small id="motionmeta">Noch keine Messung</small></div><div class="panel">Audio: <span id="sound">Noch nicht getestet</span></div><p id="status"></p><script>
-const el=id=>document.getElementById(id);let last=0,watch=null,ctx=null,osc=null;
-el('start').onclick=async()=>{el('status').textContent='Starte Tests…';if(!navigator.geolocation){el('gps').textContent='Nicht verfügbar'}else{try{if(watch!==null)navigator.geolocation.clearWatch(watch);watch=navigator.geolocation.watchPosition(p=>{let now=performance.now(),interval=last?Math.round(now-last):null;last=now;let age=Math.max(0,Math.round((Date.now()-p.timestamp)/1000*10)/10);el('gps').textContent=p.coords.speed===null?'Geschwindigkeit unbekannt':(p.coords.speed*3.6).toFixed(1)+' km/h';el('gpsmeta').textContent='Alter: '+age+' s | Intervall: '+(interval??'–')+' ms | Genauigkeit: '+Math.round(p.coords.accuracy)+' m';},e=>{el('gps').textContent='Fehler '+e.code;el('gpsmeta').textContent=e.message},{enableHighAccuracy:true,maximumAge:0,timeout:15000});}catch(e){el('gpsmeta').textContent=e.message}}
-if(typeof DeviceMotionEvent==='undefined'){el('motion').textContent='Nicht unterstützt'}else{try{if(typeof DeviceMotionEvent.requestPermission==='function'){let p=await DeviceMotionEvent.requestPermission();if(p!=='granted')throw Error('Keine Berechtigung')}let count=0,prev=0;window.addEventListener('devicemotion',e=>{let a=e.acceleration||e.accelerationIncludingGravity;count++;if(performance.now()-prev>250){prev=performance.now();el('motion').textContent=a&&a.x!==null?'Aktiv':'Keine Werte';el('motionmeta').textContent=a?'x: '+a.x?.toFixed(2)+' y: '+a.y?.toFixed(2)+' z: '+a.z?.toFixed(2)+' | Ereignisse: '+count:'Keine Beschleunigung verfügbar';}});el('motion').textContent='Listener aktiv';}catch(e){el('motion').textContent='Nicht verfügbar';el('motionmeta').textContent=e.message}}el('status').textContent='Diagnose läuft';};
-el('audio').onclick=async()=>{try{if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();if(osc){osc.stop();osc.disconnect();osc=null;el('sound').textContent='Gestoppt';return}osc=ctx.createOscillator();let gain=ctx.createGain();gain.gain.value=.035;osc.type='sawtooth';osc.frequency.value=95;osc.connect(gain).connect(ctx.destination);osc.start();el('sound').textContent='Ton läuft – erneut tippen zum Stoppen';}catch(e){el('sound').textContent='Fehler: '+e.message}};
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#10151d"><title>TeslaSound | V8 Simulator</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0d121a;color:#f3f6fc;font:16px system-ui,-apple-system,sans-serif}
+main{max-width:760px;margin:auto;padding:22px}h1{margin:0;font-size:30px}p{color:#aab8ca;line-height:1.5}
+.panel{background:#192333;border:1px solid #29384d;border-radius:18px;padding:18px;margin:15px 0}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tag{color:#9cb3d4;font-size:13px}.metric{font-size:42px;font-weight:750;letter-spacing:-2px}
+small{color:#9fb0c7}button{background:#347ef2;color:white;border:0;border-radius:12px;padding:16px 20px;font-size:17px;font-weight:650;cursor:pointer}
+button.secondary{background:#293b54}button.stop{background:#c43c48}button:disabled{opacity:.5}
+.actions{display:flex;gap:10px;flex-wrap:wrap}input[type=range]{width:100%;accent-color:#5da1ff;height:36px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid .panel{margin:0}
+#meter{height:11px;background:#324157;border-radius:9px;overflow:hidden;margin-top:12px}
+#fill{width:0%;height:100%;background:linear-gradient(90deg,#3a9bff,#ffb347,#ef4242);transition:width .12s}
+label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
+@media(max-width:460px){.metric{font-size:33px}main{padding:14px}.grid{gap:8px}}
+</style></head><body><main>
+<div class="top"><div><small>TESLA MODEL 3 · WEB AUDIO</small><h1>TeslaSound <span style="color:#6aa7ff">V8</span></h1></div><span class="tag" id="mode">Bereit</span></div>
+<p>Virtueller Motorsound aus GPS-Geschwindigkeit und geschätzter Beschleunigung. Nur im Stand bedienen.</p>
+<div class="panel"><div class="actions"><button id="start">▶ Motor starten</button><button id="stop" class="stop" disabled>■ Stoppen</button></div><p id="status">Zum Starten tippen und Standort erlauben.</p></div>
+<div class="grid"><div class="panel"><small>Geschwindigkeit</small><div><span class="metric" id="speed">0</span> <small>km/h</small></div></div>
+<div class="panel"><small>Virtuelle Drehzahl</small><div><span class="metric" id="rpm">850</span> <small>RPM</small></div></div></div>
+<div class="panel"><div class="top"><span>Virtueller Gang</span><strong id="gear">1</strong></div><div id="meter"><div id="fill"></div></div><small id="gpsinfo">GPS noch nicht gestartet</small></div>
+<div class="panel"><div class="top"><strong>Sound-Einstellungen</strong><span id="throttleLabel">Gas: 0%</span></div>
+<label for="volume">Lautstärke: <span id="volumeLabel">30%</span></label><input id="volume" type="range" min="0" max="100" value="30">
+<label for="demo">Testmodus – Gaspedal simulieren: <span id="demoLabel">0%</span></label>
+<input id="demo" type="range" min="0" max="100" value="0"><div class="actions"><button class="secondary" id="demoToggle">Testmodus aktivieren</button></div>
+<small>Im Testmodus steuert der Regler das virtuelle Gaspedal. GPS wird ignoriert.</small></div>
+<div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
+</main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+let ctx,output,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
+const ratios=[3.5,2.4,1.75,1.35,1.05,0.84],shiftUp=[32,58,88,122,165],shiftDown=[0,24,47,72,100,137];
+function setupAudio(){
+ ctx=new (window.AudioContext||window.webkitAudioContext)();
+ output=ctx.createGain();output.gain.value=0;output.connect(ctx.destination);
+ // Multi-harmonic synthetic V8-inspired engine with exhaust pulse modulation.
+ const mix=ctx.createGain();mix.gain.value=.24;mix.connect(output);
+ const harmonics=[{m:1,w:'sawtooth',v:.28},{m:2,w:'triangle',v:.26},{m:4,w:'sawtooth',v:.20},{m:8,w:'triangle',v:.11}];
+ for(const h of harmonics){const o=ctx.createOscillator(),g=ctx.createGain();o.type=h.w;g.gain.value=h.v;o.connect(g).connect(mix);o.start();engineNodes.push({o,g,m:h.m});}
+ const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=650;filter.Q.value=.8;
+ mix.disconnect();mix.connect(filter);filter.connect(output);
+}
+function setStatus(s){$('status').textContent=s}
+function beginGPS(){
+ if(!navigator.geolocation){$('gpsinfo').textContent='GPS nicht verfügbar';return}
+ watch=navigator.geolocation.watchPosition(p=>{
+ const now=performance.now(),v=p.coords.speed;
+ if(v===null||!Number.isFinite(v)){ $('gpsinfo').textContent='GPS aktiv, aber keine Geschwindigkeitswerte';return;}
+ const next=Math.max(0,v*3.6),dt=lastGpsTime?(now-lastGpsTime)/1000:0;
+ if(dt>.07&&dt<8&&lastGpsSpeed!==null){const raw=((next-lastGpsSpeed)/3.6)/dt;accel=accel*.6+clamp(raw,-5,5)*.4}
+ targetSpeed=next;lastGpsSpeed=next;lastGpsTime=now;
+ $('gpsinfo').textContent='GPS: '+next.toFixed(1)+' km/h · Messwertalter '+Math.max(0,((Date.now()-p.timestamp)/1000)).toFixed(1)+' s · Intervall '+(dt?Math.round(dt*1000)+' ms':'–');
+ },e=>{$('gpsinfo').textContent='GPS-Fehler: '+e.message},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+}
+function stop(){
+ started=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}
+ if(ctx){const old=ctx;ctx=null;old.close().catch(()=>{})}
+ engineNodes=[];$('start').disabled=false;$('stop').disabled=true;$('mode').textContent='Gestoppt';setStatus('Motor gestoppt');
+}
+$('start').onclick=async()=>{
+ if(started)return;
+ try{setupAudio();await ctx.resume();started=true;$('start').disabled=true;$('stop').disabled=false;$('mode').textContent='Motor läuft';setStatus('Motor läuft. GPS wird erfasst.');beginGPS();lastFrame=performance.now();requestAnimationFrame(tick)}
+ catch(e){setStatus('Audio konnte nicht starten: '+e.message);stop()}
+};
+$('stop').onclick=stop;
+$('demoToggle').onclick=()=>{demo=!demo;$('demoToggle').textContent=demo?'Testmodus deaktivieren':'Testmodus aktivieren';$('mode').textContent=demo?'Testmodus':'GPS-Modus';if(!demo){lastGpsTime=0;lastGpsSpeed=null;accel=0;}};
+$('demo').oninput=()=>{$('demoLabel').textContent=$('demo').value+'%'};
+$('volume').oninput=()=>{$('volumeLabel').textContent=$('volume').value+'%'};
+function tick(t){
+ if(!started||!ctx)return;
+ const dt=clamp((t-lastFrame)/1000,.001,.12);lastFrame=t;
+ if(demo){gas=Number($('demo').value)/100;const desired=gas*175;speed+=clamp(desired-speed,-38*dt,22*dt);accel=gas*2.5-(1-gas)*1.4}
+ else {
+ const age=(t-lastGpsTime)/1000;
+ if(lastGpsTime&&age<2.5){const predicted=clamp(targetSpeed+accel*3.6*Math.min(age,.35),0,240);speed+=(predicted-speed)*clamp(dt*6,0,1)}
+ else if(lastGpsTime){speed+=(targetSpeed-speed)*clamp(dt*2,0,1);accel*=Math.exp(-dt*3)}
+ gas=clamp(.16+accel/3.2,0,1);if(speed<2)gas=.08;
+ }
+ if(gear<6&&speed>shiftUp[gear-1]+4)gear++;
+ if(gear>1&&speed<shiftDown[gear-1]-4)gear--;
+ const wheelRPM=speed*ratios[gear-1]*31;
+ const desiredRPM=clamp(850+wheelRPM+gas*1050,850,7200);
+ rpm+=(desiredRPM-rpm)*clamp(dt*(desiredRPM>rpm?8:5),0,1);
+ const now=ctx.currentTime,fireHz=rpm/60*4;
+ for(const n of engineNodes){n.o.frequency.setTargetAtTime(fireHz*n.m,now,.025)}
+ const loud=Number($('volume').value)/100;
+ output.gain.setTargetAtTime(loud*(.10+.45*gas+.15*clamp(rpm/6500,0,1)),now,.04);
+ $('speed').textContent=Math.round(speed);$('rpm').textContent=Math.round(rpm/50)*50;$('gear').textContent=gear;
+ $('fill').style.width=(rpm/7200*100)+'%';$('throttleLabel').textContent='Gas: '+Math.round(gas*100)+'%';
+ $('diag').textContent=demo?'Testmodus: Gaspedal '+Math.round(gas*100)+'%':lastGpsTime?'GPS-Wert zuletzt vor '+((t-lastGpsTime)/1000).toFixed(1)+' s empfangen. Beschleunigungsschätzung: '+accel.toFixed(2)+' m/s².':'Warte auf ersten GPS-Geschwindigkeitswert.';
+ requestAnimationFrame(tick);
+}
+document.addEventListener('visibilitychange',()=>{if(started&&document.hidden)setStatus('Browser im Hintergrund – Audio und GPS können eingeschränkt sein.');else if(started)setStatus('Motor läuft.')});
+})();
 </script></body></html>
