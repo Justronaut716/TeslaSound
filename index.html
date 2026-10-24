@@ -27,18 +27,18 @@ label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
 <label for="bass">Bass / Tiefes Brummen: <span id="bassLabel">65%</span></label><input id="bass" type="range" min="0" max="100" value="65"><label for="demo">Testmodus – Gaspedal simulieren: <span id="demoLabel">0%</span></label>
 <input id="demo" type="range" min="0" max="100" value="0"><div class="actions"><button class="secondary" id="demoToggle">Testmodus aktivieren</button></div>
 <small>Im Testmodus steuert der Regler das virtuelle Gaspedal. GPS wird ignoriert.</small></div>
-<div class="panel"><strong>V8 Sample-Engine · 4 Drehzahlbereiche</strong><p>Lade vier möglichst gleichmäßige Motoraufnahmen. Die Engine blendet beim Hochdrehen zwischen ihnen über.</p>
+<div class="panel"><strong>V8 Sample-Engine · 4 Drehzahlbereiche</strong><p>Vier Motorloops werden automatisch geladen und beim Hochdrehen überblendet. Optional kannst du eigene Aufnahmen ersetzen.</p>
 <label>Leerlauf · ca. 850 RPM</label><input type="file" accept="audio/*" data-layer="0"><small id="layer0">Keine Datei</small>
 <label>Niedrige Drehzahl · ca. 2000 RPM</label><input type="file" accept="audio/*" data-layer="1"><small id="layer1">Keine Datei</small>
 <label>Mittlere Drehzahl · ca. 4000 RPM</label><input type="file" accept="audio/*" data-layer="2"><small id="layer2">Keine Datei</small>
 <label>Hohe Drehzahl · ca. 6500 RPM</label><input type="file" accept="audio/*" data-layer="3"><small id="layer3">Keine Datei</small>
-<p id="sampleStatus">Ohne Aufnahmen läuft der synthetische Ersatzsound.</p><small>WAV/MP3/OGG. Die Dateien bleiben lokal im Browser und müssen nach dem Neuladen erneut ausgewählt werden. Idealerweise kurze, gleichmäßige, nahtlos loopbare Aufnahmen verwenden.</small></div>
+<p id="sampleStatus">Vier Motorloops werden beim Start automatisch geladen. Eigene Aufnahmen sind optional.</p><small>Quelle: domasx2 / OpenGameArt (CC0). Die Dateien werden extern geladen; Internetverbindung erforderlich.</small><small>WAV/MP3/OGG. Die Dateien bleiben lokal im Browser und müssen nach dem Neuladen erneut ausgewählt werden. Idealerweise kurze, gleichmäßige, nahtlos loopbare Aufnahmen verwenden.</small></div>
 <div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
 </main>
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-const layers=[{rpm:850},{rpm:2000},{rpm:4000},{rpm:6500}];let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
+const layers=[{rpm:850,url:'https://opengameart.org/sites/default/files/loop_0.wav'},{rpm:2000,url:'https://opengameart.org/sites/default/files/loop_1_0.wav'},{rpm:4000,url:'https://opengameart.org/sites/default/files/loop_3_0.wav'},{rpm:6500,url:'https://opengameart.org/sites/default/files/loop_5_0.wav'}];let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
 const ratios=[3.5,2.4,1.75,1.35,1.05,0.84],shiftUp=[32,58,88,122,165],shiftDown=[0,24,47,72,100,137];
 let exhaustFilter2, exhaustFilter, intakeFilter, exhaustGain, intakeGain, crackleGain, pulseOsc, pulseGain, noiseSource, rumbleGain, rumbleFilter, rumbleOsc, drive;
 function setupAudio(){
@@ -95,6 +95,17 @@ document.querySelectorAll('[data-layer]').forEach(input=>input.addEventListener(
  $('sampleStatus').textContent=layers.filter(x=>x.buffer).length+' von 4 Bereichen geladen.';
  }catch(err){$('layer'+index).textContent='Fehler: '+err.message}
 }));
+function startBuiltinSamples(){
+ if(!layers.some(x=>x.buffer)){
+ let ready=0;
+ for(let i=0;i<layers.length;i++){
+ const layer=layers[i],el=new Audio(layer.url);el.loop=true;el.preload='auto';el.volume=0;
+ el.addEventListener('canplay',()=>{ready++;$('sampleStatus').textContent='Automatische Motorloops: '+ready+' von 4 geladen.'},{once:true});
+ el.addEventListener('error',()=>{$('sampleStatus').textContent='Externe Samples konnten nicht vollständig geladen werden; Ersatzsound bleibt aktiv.'},{once:true});
+ layer.element=el;el.play().catch(()=>{$('sampleStatus').textContent='Automatische Audiowiedergabe blockiert – Motor erneut starten.'});
+ }
+ }
+}
 function setStatus(s){$('status').textContent=s}
 function beginGPS(){
  if(!navigator.geolocation){$('gpsinfo').textContent='GPS nicht verfügbar';return}
@@ -109,12 +120,13 @@ function beginGPS(){
 }
 function stop(){
  started=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}
+ for(const layer of layers)if(layer.element){layer.element.pause();layer.element=null}
  if(ctx){const old=ctx;ctx=null;old.close().catch(()=>{})}
  engineNodes=[];for(const layer of layers){layer.source=null;layer.gain=null}$('start').disabled=false;$('stop').disabled=true;$('mode').textContent='Gestoppt';setStatus('Motor gestoppt');
 }
 $('start').onclick=async()=>{
  if(started)return;
- try{setupAudio();await ctx.resume();started=true;$('start').disabled=true;$('stop').disabled=false;$('mode').textContent='Motor läuft';setStatus('Motor läuft. GPS wird erfasst.');beginGPS();lastFrame=performance.now();requestAnimationFrame(tick)}
+ try{setupAudio();await ctx.resume();started=true;$('start').disabled=true;$('stop').disabled=false;$('mode').textContent='Motor läuft';setStatus('Motor läuft. GPS wird erfasst.');beginGPS();startBuiltinSamples();lastFrame=performance.now();requestAnimationFrame(tick)}
  catch(e){setStatus('Audio konnte nicht starten: '+e.message);stop()}
 };
 $('stop').onclick=stop;
@@ -157,7 +169,7 @@ function tick(t){
 document.addEventListener('visibilitychange',()=>{if(started&&document.hidden)setStatus('Browser im Hintergrund – Audio und GPS können eingeschränkt sein.');else if(started)setStatus('Motor läuft.')});
 })();
 </script></body></html
- const loaded=layers.filter(x=>x.source);
+ const loaded=layers.filter(x=>x.source||x.element);
  if(loaded.length){
  const sorted=loaded.slice().sort((a,b)=>a.rpm-b.rpm);
  let low=sorted[0],high=sorted[sorted.length-1],mix=0;
