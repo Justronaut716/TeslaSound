@@ -17,14 +17,14 @@ label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
 @media(max-width:460px){.metric{font-size:33px}main{padding:14px}.grid{gap:8px}}
 </style></head><body><main>
 <div class="top"><div><small>TESLA MODEL 3 · WEB AUDIO</small><h1>TeslaSound <span style="color:#6aa7ff">V8</span></h1></div><span class="tag" id="mode">Bereit</span></div>
-<p>Virtueller Motorsound aus GPS-Geschwindigkeit und geschätzter Beschleunigung. Nur im Stand bedienen.</p>
+<p>Tiefer V8-Sound mit Bassanteil aus GPS-Geschwindigkeit und geschätzter Beschleunigung. Nur im Stand bedienen.</p>
 <div class="panel"><div class="actions"><button id="start">▶ Motor starten</button><button id="stop" class="stop" disabled>■ Stoppen</button></div><p id="status">Zum Starten tippen und Standort erlauben.</p></div>
 <div class="grid"><div class="panel"><small>Geschwindigkeit</small><div><span class="metric" id="speed">0</span> <small>km/h</small></div></div>
 <div class="panel"><small>Virtuelle Drehzahl</small><div><span class="metric" id="rpm">850</span> <small>RPM</small></div></div></div>
 <div class="panel"><div class="top"><span>Virtueller Gang</span><strong id="gear">1</strong></div><div id="meter"><div id="fill"></div></div><small id="gpsinfo">GPS noch nicht gestartet</small></div>
 <div class="panel"><div class="top"><strong>Sound-Einstellungen</strong><span id="throttleLabel">Gas: 0%</span></div>
 <label for="volume">Lautstärke: <span id="volumeLabel">30%</span></label><input id="volume" type="range" min="0" max="100" value="30">
-<label for="demo">Testmodus – Gaspedal simulieren: <span id="demoLabel">0%</span></label>
+<label for="bass">Bass / Tiefes Brummen: <span id="bassLabel">65%</span></label><input id="bass" type="range" min="0" max="100" value="65"><label for="demo">Testmodus – Gaspedal simulieren: <span id="demoLabel">0%</span></label>
 <input id="demo" type="range" min="0" max="100" value="0"><div class="actions"><button class="secondary" id="demoToggle">Testmodus aktivieren</button></div>
 <small>Im Testmodus steuert der Regler das virtuelle Gaspedal. GPS wird ignoriert.</small></div>
 <div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
@@ -32,16 +32,21 @@ label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
 <script>
 (()=>{'use strict';
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-let ctx,output,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
+let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
 const ratios=[3.5,2.4,1.75,1.35,1.05,0.84],shiftUp=[32,58,88,122,165],shiftDown=[0,24,47,72,100,137];
 function setupAudio(){
  ctx=new (window.AudioContext||window.webkitAudioContext)();
- output=ctx.createGain();output.gain.value=0;output.connect(ctx.destination);
+ output=ctx.createGain();output.gain.value=0;
+ compressor=ctx.createDynamicsCompressor();compressor.threshold.value=-18;compressor.knee.value=12;compressor.ratio.value=5;compressor.attack.value=.005;compressor.release.value=.18;
+ output.connect(compressor);compressor.connect(ctx.destination);
+ bassOsc=ctx.createOscillator();bassOsc.type='sine';bassGain=ctx.createGain();bassGain.gain.value=0;
+ bassFilter=ctx.createBiquadFilter();bassFilter.type='lowpass';bassFilter.frequency.value=115;
+ bassOsc.connect(bassFilter).connect(bassGain).connect(output);bassOsc.start();
  // Multi-harmonic synthetic V8-inspired engine with exhaust pulse modulation.
  const mix=ctx.createGain();mix.gain.value=.24;mix.connect(output);
- const harmonics=[{m:1,w:'sawtooth',v:.28},{m:2,w:'triangle',v:.26},{m:4,w:'sawtooth',v:.20},{m:8,w:'triangle',v:.11}];
+ const harmonics=[{m:.5,w:'triangle',v:.24},{m:1,w:'sawtooth',v:.21},{m:2,w:'triangle',v:.15},{m:4,w:'sawtooth',v:.08}];
  for(const h of harmonics){const o=ctx.createOscillator(),g=ctx.createGain();o.type=h.w;g.gain.value=h.v;o.connect(g).connect(mix);o.start();engineNodes.push({o,g,m:h.m});}
- const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=650;filter.Q.value=.8;
+ const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=380;filter.Q.value=.8;
  mix.disconnect();mix.connect(filter);filter.connect(output);
 }
 function setStatus(s){$('status').textContent=s}
@@ -69,7 +74,7 @@ $('start').onclick=async()=>{
 $('stop').onclick=stop;
 $('demoToggle').onclick=()=>{demo=!demo;$('demoToggle').textContent=demo?'Testmodus deaktivieren':'Testmodus aktivieren';$('mode').textContent=demo?'Testmodus':'GPS-Modus';if(!demo){lastGpsTime=0;lastGpsSpeed=null;accel=0;}};
 $('demo').oninput=()=>{$('demoLabel').textContent=$('demo').value+'%'};
-$('volume').oninput=()=>{$('volumeLabel').textContent=$('volume').value+'%'};
+$('volume').oninput=()=>{$('volumeLabel').textContent=$('volume').value+'%'}; $('bass').oninput=()=>{$('bassLabel').textContent=$('bass').value+'%'};
 function tick(t){
  if(!started||!ctx)return;
  const dt=clamp((t-lastFrame)/1000,.001,.12);lastFrame=t;
@@ -87,6 +92,9 @@ function tick(t){
  rpm+=(desiredRPM-rpm)*clamp(dt*(desiredRPM>rpm?8:5),0,1);
  const now=ctx.currentTime,fireHz=rpm/60*4;
  for(const n of engineNodes){n.o.frequency.setTargetAtTime(fireHz*n.m,now,.025)}
+ // Low-frequency rumble (roughly 35–95 Hz), routed through normal stereo audio.
+ bassOsc.frequency.setTargetAtTime(clamp(rpm/60*.75,35,95),now,.05);
+ bassGain.gain.setTargetAtTime((Number($('bass').value)/100)*(.10+.17*gas),now,.06);
  const loud=Number($('volume').value)/100;
  output.gain.setTargetAtTime(loud*(.10+.45*gas+.15*clamp(rpm/6500,0,1)),now,.04);
  $('speed').textContent=Math.round(speed);$('rpm').textContent=Math.round(rpm/50)*50;$('gear').textContent=gear;
