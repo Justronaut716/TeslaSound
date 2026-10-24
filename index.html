@@ -17,7 +17,7 @@ label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
 @media(max-width:460px){.metric{font-size:33px}main{padding:14px}.grid{gap:8px}}
 </style></head><body><main>
 <div class="top"><div><small>TESLA MODEL 3 · WEB AUDIO</small><h1>TeslaSound <span style="color:#6aa7ff">V8</span></h1></div><span class="tag" id="mode">Bereit</span></div>
-<p>Tiefer V8-Sound mit Bassanteil aus GPS-Geschwindigkeit und geschätzter Beschleunigung. Nur im Stand bedienen.</p>
+<p>Neu modellierter V8-Sound mit Auspuffpulsen und Bassanteil aus GPS-Geschwindigkeit und geschätzter Beschleunigung. Nur im Stand bedienen.</p>
 <div class="panel"><div class="actions"><button id="start">▶ Motor starten</button><button id="stop" class="stop" disabled>■ Stoppen</button></div><p id="status">Zum Starten tippen und Standort erlauben.</p></div>
 <div class="grid"><div class="panel"><small>Geschwindigkeit</small><div><span class="metric" id="speed">0</span> <small>km/h</small></div></div>
 <div class="panel"><small>Virtuelle Drehzahl</small><div><span class="metric" id="rpm">850</span> <small>RPM</small></div></div></div>
@@ -34,20 +34,42 @@ label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
 const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
 const ratios=[3.5,2.4,1.75,1.35,1.05,0.84],shiftUp=[32,58,88,122,165],shiftDown=[0,24,47,72,100,137];
+let exhaustFilter2, exhaustFilter, intakeFilter, exhaustGain, intakeGain, crackleGain, pulseOsc, pulseGain, noiseSource, rumbleGain, rumbleFilter, rumbleOsc, drive;
 function setupAudio(){
  ctx=new (window.AudioContext||window.webkitAudioContext)();
  output=ctx.createGain();output.gain.value=0;
- compressor=ctx.createDynamicsCompressor();compressor.threshold.value=-18;compressor.knee.value=12;compressor.ratio.value=5;compressor.attack.value=.005;compressor.release.value=.18;
+ compressor=ctx.createDynamicsCompressor();compressor.threshold.value=-20;compressor.knee.value=16;compressor.ratio.value=5;compressor.attack.value=.004;compressor.release.value=.15;
  output.connect(compressor);compressor.connect(ctx.destination);
- bassOsc=ctx.createOscillator();bassOsc.type='sine';bassGain=ctx.createGain();bassGain.gain.value=0;
- bassFilter=ctx.createBiquadFilter();bassFilter.type='lowpass';bassFilter.frequency.value=115;
- bassOsc.connect(bassFilter).connect(bassGain).connect(output);bassOsc.start();
- // Multi-harmonic synthetic V8-inspired engine with exhaust pulse modulation.
- const mix=ctx.createGain();mix.gain.value=.24;mix.connect(output);
- const harmonics=[{m:.5,w:'triangle',v:.24},{m:1,w:'sawtooth',v:.21},{m:2,w:'triangle',v:.15},{m:4,w:'sawtooth',v:.08}];
- for(const h of harmonics){const o=ctx.createOscillator(),g=ctx.createGain();o.type=h.w;g.gain.value=h.v;o.connect(g).connect(mix);o.start();engineNodes.push({o,g,m:h.m});}
- const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=380;filter.Q.value=.8;
- mix.disconnect();mix.connect(filter);filter.connect(output);
+ // A pulse-rich exhaust waveform: sharp combustion thump and trailing resonances.
+ const N=4096,real=new Float32Array(33),imag=new Float32Array(33);
+ for(let k=1;k<=32;k++){const fall=1/Math.pow(k,.88);real[k]=fall*Math.sin(k*.36);imag[k]=fall*Math.cos(k*.36)}
+ const wave=ctx.createPeriodicWave(real,imag,{disableNormalization:false});
+ pulseOsc=ctx.createOscillator();pulseOsc.setPeriodicWave(wave);
+ pulseGain=ctx.createGain();pulseGain.gain.value=.23;
+ drive=ctx.createWaveShaper();const curve=new Float32Array(2048);
+ for(let i=0;i<curve.length;i++){const x=i/(curve.length-1)*2-1;curve[i]=Math.tanh(2.7*x)}
+ drive.curve=curve;drive.oversample='2x';
+ exhaustFilter=ctx.createBiquadFilter();exhaustFilter.type='lowpass';exhaustFilter.frequency.value=320;exhaustFilter.Q.value=1.3;
+ pulseOsc.connect(drive).connect(exhaustFilter).connect(pulseGain).connect(output);pulseOsc.start();
+ // Separate low-end exhaust rumble.
+ rumbleOsc=ctx.createOscillator();rumbleOsc.type='triangle';
+ rumbleFilter=ctx.createBiquadFilter();rumbleFilter.type='lowpass';rumbleFilter.frequency.value=105;
+ rumbleGain=ctx.createGain();rumbleGain.gain.value=0;
+ rumbleOsc.connect(rumbleFilter).connect(rumbleGain).connect(output);rumbleOsc.start();
+ // Broadband turbulent exhaust and induction noise.
+ const sr=ctx.sampleRate,buffer=ctx.createBuffer(1,sr*2,sr),data=buffer.getChannelData(0);
+ let brown=0;for(let i=0;i<data.length;i++){const white=Math.random()*2-1;brown=(brown+.08*white)/1.08;data[i]=white*.58+brown*.85}
+ noiseSource=ctx.createBufferSource();noiseSource.buffer=buffer;noiseSource.loop=true;
+ exhaustFilter2=ctx.createBiquadFilter();exhaustFilter2.type='bandpass';exhaustFilter2.frequency.value=115;exhaustFilter2.Q.value=.8;
+ exhaustGain=ctx.createGain();exhaustGain.gain.value=.045;
+ intakeFilter=ctx.createBiquadFilter();intakeFilter.type='bandpass';intakeFilter.frequency.value=780;intakeFilter.Q.value=.65;
+ intakeGain=ctx.createGain();intakeGain.gain.value=0;
+ noiseSource.connect(exhaustFilter2).connect(exhaustGain).connect(output);
+ noiseSource.connect(intakeFilter).connect(intakeGain).connect(output);noiseSource.start();
+ // Low-volume high-order combustion detail.
+ const o=ctx.createOscillator();o.type='sawtooth';const g=ctx.createGain();g.gain.value=.022;
+ const high=ctx.createBiquadFilter();high.type='bandpass';high.frequency.value=420;high.Q.value=.65;
+ o.connect(high).connect(g).connect(output);o.start();engineNodes=[{o,g,m:2}];
 }
 function setStatus(s){$('status').textContent=s}
 function beginGPS(){
@@ -91,12 +113,18 @@ function tick(t){
  const desiredRPM=clamp(850+wheelRPM+gas*1050,850,7200);
  rpm+=(desiredRPM-rpm)*clamp(dt*(desiredRPM>rpm?8:5),0,1);
  const now=ctx.currentTime,fireHz=rpm/60*4;
- for(const n of engineNodes){n.o.frequency.setTargetAtTime(fireHz*n.m,now,.025)}
- // Low-frequency rumble (roughly 35–95 Hz), routed through normal stereo audio.
- bassOsc.frequency.setTargetAtTime(clamp(rpm/60*.75,35,95),now,.05);
- bassGain.gain.setTargetAtTime((Number($('bass').value)/100)*(.10+.17*gas),now,.06);
- const loud=Number($('volume').value)/100;
- output.gain.setTargetAtTime(loud*(.10+.45*gas+.15*clamp(rpm/6500,0,1)),now,.04);
+ pulseOsc.frequency.setTargetAtTime(fireHz,now,.035);
+ rumbleOsc.frequency.setTargetAtTime(clamp(fireHz*.5,28,105),now,.05);
+ for(const n of engineNodes)n.o.frequency.setTargetAtTime(fireHz*n.m,now,.035);
+ const bass=Number($('bass').value)/100, loud=Number($('volume').value)/100;
+ exhaustFilter.frequency.setTargetAtTime(210+rpm*.075+gas*430,now,.06);
+ exhaustFilter2.frequency.setTargetAtTime(85+rpm*.024,now,.08);
+ intakeFilter.frequency.setTargetAtTime(430+rpm*.22+gas*400,now,.08);
+ pulseGain.gain.setTargetAtTime(.16+.14*gas,now,.05);
+ rumbleGain.gain.setTargetAtTime(bass*(.08+.13*gas),now,.06);
+ exhaustGain.gain.setTargetAtTime(.035+.065*gas,now,.07);
+ intakeGain.gain.setTargetAtTime(.006+.11*gas,now,.07);
+ output.gain.setTargetAtTime(loud*.72,now,.05);
  $('speed').textContent=Math.round(speed);$('rpm').textContent=Math.round(rpm/50)*50;$('gear').textContent=gear;
  $('fill').style.width=(rpm/7200*100)+'%';$('throttleLabel').textContent='Gas: '+Math.round(gas*100)+'%';
  $('diag').textContent=demo?'Testmodus: Gaspedal '+Math.round(gas*100)+'%':lastGpsTime?'GPS-Wert zuletzt vor '+((t-lastGpsTime)/1000).toFixed(1)+' s empfangen. Beschleunigungsschätzung: '+accel.toFixed(2)+' m/s².':'Warte auf ersten GPS-Geschwindigkeitswert.';
