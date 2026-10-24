@@ -1,7 +1,7 @@
 <!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TeslaSound V8</title><style>
 *{box-sizing:border-box}body{background:#0c121b;color:#f4f7fc;font:16px system-ui;margin:0}main{max-width:750px;margin:auto;padding:22px}h1{font-size:32px;margin:8px 0}p,small{color:#b2c0d2;line-height:1.5}.card{background:#192637;border:1px solid #32465d;border-radius:16px;padding:18px;margin:15px 0}button{border:0;background:#3986fa;color:white;border-radius:12px;padding:14px 20px;font-size:17px;font-weight:bold;margin:4px 5px 4px 0}button:disabled{opacity:.5}.secondary{background:#344a65}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid .card{margin:0}.value{font-size:34px;font-weight:750}input[type=range]{width:100%;accent-color:#60a5fa;height:34px}label{display:block;margin-top:14px}#status{color:#b9dbff}
 </style></head><body><main><small>TESLA MODEL 3 · V8 SIMULATOR</small><h1>TeslaSound</h1><p>Virtueller Motorsound mit tiefem Auspuffgrollen. Bitte nur im Stand bedienen.</p>
-<div class="card"><button id="start">▶ Motor starten</button><button id="stop" class="secondary" disabled>■ Stoppen</button><p id="status">Bereit. Erst Motor starten, dann Testmodus aktivieren.</p></div>
+<div class="card"><button id="start">▶ Motor starten</button><button id="stop" class="secondary" disabled>■ Stoppen</button><button id="beep" class="secondary">🔊 Lautsprechertest</button><p id="status">Bereit. Erst Motor starten, dann Testmodus aktivieren.</p></div>
 <div class="grid"><div class="card"><small>Geschwindigkeit</small><div class="value"><span id="speed">0</span> <small>km/h</small></div></div><div class="card"><small>Drehzahl</small><div class="value"><span id="rpm">850</span> <small>RPM</small></div></div></div>
 <div class="card"><strong>Sound & Test</strong><label>Lautstärke: <span id="volLabel">35%</span></label><input id="volume" type="range" min="0" max="100" value="35"><label>Bass: <span id="bassLabel">70%</span></label><input id="bass" type="range" min="0" max="100" value="70"><button id="test" class="secondary">Testmodus aktivieren</button><label>Virtuelles Gaspedal: <span id="gasLabel">0%</span></label><input id="pedal" type="range" min="0" max="100" value="0"><p id="mode">GPS-Modus</p></div>
 <div class="card"><strong>GPS / Diagnose</strong><p id="gps">GPS noch nicht gestartet.</p><small>Im Testmodus wird kein GPS benötigt. Beim Minimieren des Browsers kann die Wiedergabe unterbrochen werden.</small></div></main>
@@ -10,6 +10,15 @@
 'use strict';
 const el=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 let ctx,master,filter,osc=[],noise,noiseGain,noiseFilter,watch=null,running=false,test=false,speed=0,targetSpeed=0,rpm=850,accel=0,lastGPS=0,lastSpeed=0,lastTime=0;
+async function beep(){
+ try{
+ const ac=new (window.AudioContext||window.webkitAudioContext)();
+ const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=440;g.gain.value=.16;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.65);
+ el('status').textContent='Testton gestartet · AudioContext: '+ac.state;
+ setTimeout(()=>ac.close().catch(()=>{}),900);
+ }catch(e){el('status').textContent='Testton fehlgeschlagen: '+e.message}
+}
+el('beep').onclick=beep;
 function audio(){
  ctx=new (window.AudioContext||window.webkitAudioContext)();
  master=ctx.createGain();master.gain.value=0;
