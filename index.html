@@ -1,185 +1,65 @@
-<!doctype html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#10151d"><title>TeslaSound | V8 Simulator</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#0d121a;color:#f3f6fc;font:16px system-ui,-apple-system,sans-serif}
-main{max-width:760px;margin:auto;padding:22px}h1{margin:0;font-size:30px}p{color:#aab8ca;line-height:1.5}
-.panel{background:#192333;border:1px solid #29384d;border-radius:18px;padding:18px;margin:15px 0}
-.top{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.tag{color:#9cb3d4;font-size:13px}.metric{font-size:42px;font-weight:750;letter-spacing:-2px}
-small{color:#9fb0c7}button{background:#347ef2;color:white;border:0;border-radius:12px;padding:16px 20px;font-size:17px;font-weight:650;cursor:pointer}
-button.secondary{background:#293b54}button.stop{background:#c43c48}button:disabled{opacity:.5}
-.actions{display:flex;gap:10px;flex-wrap:wrap}input[type=range]{width:100%;accent-color:#5da1ff;height:36px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid .panel{margin:0}
-#meter{height:11px;background:#324157;border-radius:9px;overflow:hidden;margin-top:12px}
-#fill{width:0%;height:100%;background:linear-gradient(90deg,#3a9bff,#ffb347,#ef4242);transition:width .12s}
-label{display:block;margin:14px 0 6px}#status{color:#c1d3ed;font-size:14px}
-@media(max-width:460px){.metric{font-size:33px}main{padding:14px}.grid{gap:8px}}
-</style></head><body><main>
-<div class="top"><div><small>TESLA MODEL 3 · WEB AUDIO</small><h1>TeslaSound <span style="color:#6aa7ff">V8</span></h1></div><span class="tag" id="mode">Bereit</span></div>
-<p>Neu modellierter V8-Sound mit Auspuffpulsen und Bassanteil aus GPS-Geschwindigkeit und geschätzter Beschleunigung. Nur im Stand bedienen.</p>
-<div class="panel"><div class="actions"><button id="start">▶ Motor starten</button><button id="stop" class="stop" disabled>■ Stoppen</button></div><p id="status">Zum Starten tippen und Standort erlauben.</p></div>
-<div class="grid"><div class="panel"><small>Geschwindigkeit</small><div><span class="metric" id="speed">0</span> <small>km/h</small></div></div>
-<div class="panel"><small>Virtuelle Drehzahl</small><div><span class="metric" id="rpm">850</span> <small>RPM</small></div></div></div>
-<div class="panel"><div class="top"><span>Virtueller Gang</span><strong id="gear">1</strong></div><div id="meter"><div id="fill"></div></div><small id="gpsinfo">GPS noch nicht gestartet</small></div>
-<div class="panel"><div class="top"><strong>Sound-Einstellungen</strong><span id="throttleLabel">Gas: 0%</span></div>
-<label for="volume">Lautstärke: <span id="volumeLabel">30%</span></label><input id="volume" type="range" min="0" max="100" value="30">
-<label for="bass">Bass / Tiefes Brummen: <span id="bassLabel">65%</span></label><input id="bass" type="range" min="0" max="100" value="65"><label for="demo">Testmodus – Gaspedal simulieren: <span id="demoLabel">0%</span></label>
-<input id="demo" type="range" min="0" max="100" value="0"><div class="actions"><button class="secondary" id="demoToggle">Testmodus aktivieren</button></div>
-<small>Im Testmodus steuert der Regler das virtuelle Gaspedal. GPS wird ignoriert.</small></div>
-<div class="panel"><strong>V8 Sample-Engine · 4 Drehzahlbereiche</strong><p>Vier Motorloops werden automatisch geladen und beim Hochdrehen überblendet. Optional kannst du eigene Aufnahmen ersetzen.</p>
-<label>Leerlauf · ca. 850 RPM</label><input type="file" accept="audio/*" data-layer="0"><small id="layer0">Keine Datei</small>
-<label>Niedrige Drehzahl · ca. 2000 RPM</label><input type="file" accept="audio/*" data-layer="1"><small id="layer1">Keine Datei</small>
-<label>Mittlere Drehzahl · ca. 4000 RPM</label><input type="file" accept="audio/*" data-layer="2"><small id="layer2">Keine Datei</small>
-<label>Hohe Drehzahl · ca. 6500 RPM</label><input type="file" accept="audio/*" data-layer="3"><small id="layer3">Keine Datei</small>
-<p id="sampleStatus">Vier Motorloops werden beim Start automatisch geladen. Eigene Aufnahmen sind optional.</p><small>Quelle: domasx2 / OpenGameArt (CC0). Die Dateien werden extern geladen; Internetverbindung erforderlich.</small><small>WAV/MP3/OGG. Die Dateien bleiben lokal im Browser und müssen nach dem Neuladen erneut ausgewählt werden. Idealerweise kurze, gleichmäßige, nahtlos loopbare Aufnahmen verwenden.</small></div>
-<div class="panel"><strong>Diagnose</strong><p id="diag">Warte auf GPS.</p><small>Beim Minimieren des Browsers können GPS-Updates oder JavaScript gedrosselt werden. Hintergrundbetrieb ist nicht garantiert.</small></div>
-</main>
+<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TeslaSound V8</title><style>
+*{box-sizing:border-box}body{background:#0c121b;color:#f4f7fc;font:16px system-ui;margin:0}main{max-width:750px;margin:auto;padding:22px}h1{font-size:32px;margin:8px 0}p,small{color:#b2c0d2;line-height:1.5}.card{background:#192637;border:1px solid #32465d;border-radius:16px;padding:18px;margin:15px 0}button{border:0;background:#3986fa;color:white;border-radius:12px;padding:14px 20px;font-size:17px;font-weight:bold;margin:4px 5px 4px 0}button:disabled{opacity:.5}.secondary{background:#344a65}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid .card{margin:0}.value{font-size:34px;font-weight:750}input[type=range]{width:100%;accent-color:#60a5fa;height:34px}label{display:block;margin-top:14px}#status{color:#b9dbff}
+</style></head><body><main><small>TESLA MODEL 3 · V8 SIMULATOR</small><h1>TeslaSound</h1><p>Virtueller Motorsound mit tiefem Auspuffgrollen. Bitte nur im Stand bedienen.</p>
+<div class="card"><button id="start">▶ Motor starten</button><button id="stop" class="secondary" disabled>■ Stoppen</button><p id="status">Bereit. Erst Motor starten, dann Testmodus aktivieren.</p></div>
+<div class="grid"><div class="card"><small>Geschwindigkeit</small><div class="value"><span id="speed">0</span> <small>km/h</small></div></div><div class="card"><small>Drehzahl</small><div class="value"><span id="rpm">850</span> <small>RPM</small></div></div></div>
+<div class="card"><strong>Sound & Test</strong><label>Lautstärke: <span id="volLabel">35%</span></label><input id="volume" type="range" min="0" max="100" value="35"><label>Bass: <span id="bassLabel">70%</span></label><input id="bass" type="range" min="0" max="100" value="70"><button id="test" class="secondary">Testmodus aktivieren</button><label>Virtuelles Gaspedal: <span id="gasLabel">0%</span></label><input id="pedal" type="range" min="0" max="100" value="0"><p id="mode">GPS-Modus</p></div>
+<div class="card"><strong>GPS / Diagnose</strong><p id="gps">GPS noch nicht gestartet.</p><small>Im Testmodus wird kein GPS benötigt. Beim Minimieren des Browsers kann die Wiedergabe unterbrochen werden.</small></div></main>
 <script>
-(()=>{'use strict';
-const $=id=>document.getElementById(id), clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
-const layers=[{rpm:850,url:'https://opengameart.org/sites/default/files/loop_0.wav'},{rpm:2000,url:'https://opengameart.org/sites/default/files/loop_1_0.wav'},{rpm:4000,url:'https://opengameart.org/sites/default/files/loop_3_0.wav'},{rpm:6500,url:'https://opengameart.org/sites/default/files/loop_5_0.wav'}];let ctx,output,bassOsc,bassGain,bassFilter,compressor,engineNodes=[],watch=null,started=false,demo=false,gas=0,rpm=850,gear=1,speed=0,targetSpeed=0,accel=0,lastGpsTime=0,lastGpsSpeed=null,lastFrame=0,prevThrottle=0;
-const ratios=[3.5,2.4,1.75,1.35,1.05,0.84],shiftUp=[32,58,88,122,165],shiftDown=[0,24,47,72,100,137];
-let exhaustFilter2, exhaustFilter, intakeFilter, exhaustGain, intakeGain, crackleGain, pulseOsc, pulseGain, noiseSource, rumbleGain, rumbleFilter, rumbleOsc, drive;
-function setupAudio(){
+(function(){
+'use strict';
+const el=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+let ctx,master,filter,osc=[],noise,noiseGain,noiseFilter,watch=null,running=false,test=false,speed=0,targetSpeed=0,rpm=850,accel=0,lastGPS=0,lastSpeed=0,lastTime=0;
+function audio(){
  ctx=new (window.AudioContext||window.webkitAudioContext)();
- output=ctx.createGain();output.gain.value=0;
- compressor=ctx.createDynamicsCompressor();compressor.threshold.value=-20;compressor.knee.value=16;compressor.ratio.value=5;compressor.attack.value=.004;compressor.release.value=.15;
- output.connect(compressor);compressor.connect(ctx.destination);for(const layer of layers)if(layer.buffer)startLayer(layer);
- // A pulse-rich exhaust waveform: sharp combustion thump and trailing resonances.
- const N=4096,real=new Float32Array(33),imag=new Float32Array(33);
- for(let k=1;k<=32;k++){const fall=1/Math.pow(k,.88);real[k]=fall*Math.sin(k*.36);imag[k]=fall*Math.cos(k*.36)}
- const wave=ctx.createPeriodicWave(real,imag,{disableNormalization:false});
- pulseOsc=ctx.createOscillator();pulseOsc.setPeriodicWave(wave);
- pulseGain=ctx.createGain();pulseGain.gain.value=.23;
- drive=ctx.createWaveShaper();const curve=new Float32Array(2048);
- for(let i=0;i<curve.length;i++){const x=i/(curve.length-1)*2-1;curve[i]=Math.tanh(2.7*x)}
- drive.curve=curve;drive.oversample='2x';
- exhaustFilter=ctx.createBiquadFilter();exhaustFilter.type='lowpass';exhaustFilter.frequency.value=320;exhaustFilter.Q.value=1.3;
- pulseOsc.connect(drive).connect(exhaustFilter).connect(pulseGain).connect(output);pulseOsc.start();
- // Separate low-end exhaust rumble.
- rumbleOsc=ctx.createOscillator();rumbleOsc.type='triangle';
- rumbleFilter=ctx.createBiquadFilter();rumbleFilter.type='lowpass';rumbleFilter.frequency.value=105;
- rumbleGain=ctx.createGain();rumbleGain.gain.value=0;
- rumbleOsc.connect(rumbleFilter).connect(rumbleGain).connect(output);rumbleOsc.start();
- // Broadband turbulent exhaust and induction noise.
- const sr=ctx.sampleRate,buffer=ctx.createBuffer(1,sr*2,sr),data=buffer.getChannelData(0);
- let brown=0;for(let i=0;i<data.length;i++){const white=Math.random()*2-1;brown=(brown+.08*white)/1.08;data[i]=white*.58+brown*.85}
- noiseSource=ctx.createBufferSource();noiseSource.buffer=buffer;noiseSource.loop=true;
- exhaustFilter2=ctx.createBiquadFilter();exhaustFilter2.type='bandpass';exhaustFilter2.frequency.value=115;exhaustFilter2.Q.value=.8;
- exhaustGain=ctx.createGain();exhaustGain.gain.value=.045;
- intakeFilter=ctx.createBiquadFilter();intakeFilter.type='bandpass';intakeFilter.frequency.value=780;intakeFilter.Q.value=.65;
- intakeGain=ctx.createGain();intakeGain.gain.value=0;
- noiseSource.connect(exhaustFilter2).connect(exhaustGain).connect(output);
- noiseSource.connect(intakeFilter).connect(intakeGain).connect(output);noiseSource.start();
- // Low-volume high-order combustion detail.
- const o=ctx.createOscillator();o.type='sawtooth';const g=ctx.createGain();g.gain.value=.022;
- const high=ctx.createBiquadFilter();high.type='bandpass';high.frequency.value=420;high.Q.value=.65;
- o.connect(high).connect(g).connect(output);o.start();engineNodes=[{o,g,m:2}];
-}
-function startLayer(layer){
- if(!ctx||!layer.buffer)return;
- if(layer.source){try{layer.source.stop()}catch(e){}}
- const source=ctx.createBufferSource();source.buffer=layer.buffer;source.loop=true;
- const gain=ctx.createGain();gain.gain.value=0;source.connect(gain).connect(output);
- source.start();layer.source=source;layer.gain=gain;
-}
-document.querySelectorAll('[data-layer]').forEach(input=>input.addEventListener('change',async()=>{
- const index=Number(input.dataset.layer),file=input.files[0];if(!file)return;
- const layer=layers[index];$('layer'+index).textContent='Lade '+file.name+' …';
- try{
- const decoder=ctx||new (window.AudioContext||window.webkitAudioContext)();
- const buffer=await decoder.decodeAudioData(await file.arrayBuffer());
- layer.buffer=buffer;if(ctx)startLayer(layer);else await decoder.close();
- $('layer'+index).textContent='✓ '+file.name+' ('+buffer.duration.toFixed(1)+' s)';
- $('sampleStatus').textContent=layers.filter(x=>x.buffer).length+' von 4 Bereichen geladen.';
- }catch(err){$('layer'+index).textContent='Fehler: '+err.message}
-}));
-function startBuiltinSamples(){
- if(!layers.some(x=>x.buffer)){
- let ready=0;
- for(let i=0;i<layers.length;i++){
- const layer=layers[i],el=new Audio(layer.url);el.loop=true;el.preload='auto';el.volume=0;
- el.addEventListener('canplay',()=>{ready++;$('sampleStatus').textContent='Automatische Motorloops: '+ready+' von 4 geladen.'},{once:true});
- el.addEventListener('error',()=>{$('sampleStatus').textContent='Externe Samples konnten nicht vollständig geladen werden; Ersatzsound bleibt aktiv.'},{once:true});
- layer.element=el;el.play().catch(()=>{$('sampleStatus').textContent='Automatische Audiowiedergabe blockiert – Motor erneut starten.'});
+ master=ctx.createGain();master.gain.value=0;
+ const limiter=ctx.createDynamicsCompressor();limiter.threshold.value=-19;limiter.ratio.value=7;limiter.attack.value=.005;limiter.release.value=.15;master.connect(limiter);limiter.connect(ctx.destination);
+ filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=400;filter.Q.value=.65;filter.connect(master);
+ for(const h of [{mult:.5,vol:.19,type:'triangle'},{mult:1,vol:.20,type:'sawtooth'},{mult:2,vol:.10,type:'triangle'},{mult:3,vol:.04,type:'sawtooth'}]){
+ const o=ctx.createOscillator(),g=ctx.createGain();o.type=h.type;g.gain.value=h.vol;o.connect(g);g.connect(filter);o.start();osc.push({o,mult:h.mult});
  }
- }
+ const buf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate),data=buf.getChannelData(0);let brown=0;
+ for(let i=0;i<data.length;i++){const w=Math.random()*2-1;brown=(brown+.06*w)/1.06;data[i]=brown*.6+w*.2}
+ noise=ctx.createBufferSource();noise.buffer=buf;noise.loop=true;noiseFilter=ctx.createBiquadFilter();noiseFilter.type='bandpass';noiseFilter.frequency.value=140;noiseFilter.Q.value=.8;noiseGain=ctx.createGain();noiseGain.gain.value=.035;noise.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(master);noise.start();
 }
-function setStatus(s){$('status').textContent=s}
-function beginGPS(){
- if(!navigator.geolocation){$('gpsinfo').textContent='GPS nicht verfügbar';return}
+function gpsStart(){
+ if(!navigator.geolocation){el('gps').textContent='GPS nicht unterstützt';return}
  watch=navigator.geolocation.watchPosition(p=>{
- const now=performance.now(),v=p.coords.speed;
- if(v===null||!Number.isFinite(v)){ $('gpsinfo').textContent='GPS aktiv, aber keine Geschwindigkeitswerte';return;}
- const next=Math.max(0,v*3.6),dt=lastGpsTime?(now-lastGpsTime)/1000:0;
- if(dt>.07&&dt<8&&lastGpsSpeed!==null){const raw=((next-lastGpsSpeed)/3.6)/dt;accel=accel*.6+clamp(raw,-5,5)*.4}
- targetSpeed=next;lastGpsSpeed=next;lastGpsTime=now;
- $('gpsinfo').textContent='GPS: '+next.toFixed(1)+' km/h · Messwertalter '+Math.max(0,((Date.now()-p.timestamp)/1000)).toFixed(1)+' s · Intervall '+(dt?Math.round(dt*1000)+' ms':'–');
- },e=>{$('gpsinfo').textContent='GPS-Fehler: '+e.message},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+ const v=p.coords.speed;if(v===null||!Number.isFinite(v)){el('gps').textContent='GPS aktiv, noch keine Geschwindigkeit';return}
+ const t=performance.now(),dt=(t-lastGPS)/1000,next=Math.max(0,v*3.6);
+ if(lastGPS&&dt>.08&&dt<5)accel=clamp(accel*.6+((next-lastSpeed)/3.6/dt)*.4,-4,4);
+ targetSpeed=next;lastSpeed=next;lastGPS=t;
+ el('gps').textContent='GPS: '+next.toFixed(1)+' km/h · Intervall '+(dt>0?Math.round(dt*1000)+' ms':'–');
+ },e=>{el('gps').textContent='GPS: '+e.message},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
 }
-function stop(){
- started=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}
- for(const layer of layers)if(layer.element){layer.element.pause();layer.element=null}
- if(ctx){const old=ctx;ctx=null;old.close().catch(()=>{})}
- engineNodes=[];for(const layer of layers){layer.source=null;layer.gain=null}$('start').disabled=false;$('stop').disabled=true;$('mode').textContent='Gestoppt';setStatus('Motor gestoppt');
+function frame(t){
+ if(!running||!ctx)return;
+ const dt=clamp((t-lastTime)/1000,.001,.1);lastTime=t;
+ let gas;
+ if(test){gas=Number(el('pedal').value)/100;speed+=clamp(gas*150-speed,-38*dt,28*dt)}
+ else{speed+=(targetSpeed-speed)*clamp(dt*5,0,1);gas=clamp(.1+accel/3,0,1);if(lastGPS&&t-lastGPS>2500)accel*=.96}
+ const gear=speed<32?1:speed<58?2:speed<88?3:speed<122?4:speed<165?5:6;
+ const ratios=[3.4,2.5,1.85,1.42,1.12,.91],desired=clamp(850+speed*ratios[gear-1]*30+gas*1250,850,6800);
+ rpm+=(desired-rpm)*clamp(dt*7,0,1);
+ const now=ctx.currentTime,hz=rpm/60*4,vol=Number(el('volume').value)/100,bass=Number(el('bass').value)/100;
+ for(const o of osc)o.o.frequency.setTargetAtTime(Math.max(20,hz*o.mult),now,.04);
+ filter.frequency.setTargetAtTime(230+rpm*.055+gas*380,now,.08);
+ noiseFilter.frequency.setTargetAtTime(90+rpm*.045,now,.08);
+ noiseGain.gain.setTargetAtTime(.025+gas*.09,now,.08);
+ master.gain.setTargetAtTime(vol*(.25+.26*gas)*(.55+.45*bass),now,.05);
+ el('speed').textContent=Math.round(speed);el('rpm').textContent=Math.round(rpm/50)*50;
+ requestAnimationFrame(frame);
 }
-$('start').onclick=async()=>{
- if(started)return;
- try{setupAudio();await ctx.resume();started=true;$('start').disabled=true;$('stop').disabled=false;$('mode').textContent='Motor läuft';setStatus('Motor läuft. GPS wird erfasst.');beginGPS();startBuiltinSamples();lastFrame=performance.now();requestAnimationFrame(tick)}
- catch(e){setStatus('Audio konnte nicht starten: '+e.message);stop()}
+el('start').onclick=async function(){
+ if(running)return;
+ try{audio();await ctx.resume();running=true;el('start').disabled=true;el('stop').disabled=false;el('status').textContent='Motor läuft · Audio: '+ctx.state;gpsStart();lastTime=performance.now();requestAnimationFrame(frame)}
+ catch(e){el('status').textContent='Audiofehler: '+e.message}
 };
-$('stop').onclick=stop;
-$('demoToggle').onclick=()=>{demo=!demo;$('demoToggle').textContent=demo?'Testmodus deaktivieren':'Testmodus aktivieren';$('mode').textContent=demo?'Testmodus':'GPS-Modus';if(!demo){lastGpsTime=0;lastGpsSpeed=null;accel=0;}};
-$('demo').oninput=()=>{$('demoLabel').textContent=$('demo').value+'%'};
-$('volume').oninput=()=>{$('volumeLabel').textContent=$('volume').value+'%'}; $('bass').oninput=()=>{$('bassLabel').textContent=$('bass').value+'%'};
-function tick(t){
- if(!started||!ctx)return;
- const dt=clamp((t-lastFrame)/1000,.001,.12);lastFrame=t;
- if(demo){gas=Number($('demo').value)/100;const desired=gas*175;speed+=clamp(desired-speed,-38*dt,22*dt);accel=gas*2.5-(1-gas)*1.4}
- else {
- const age=(t-lastGpsTime)/1000;
- if(lastGpsTime&&age<2.5){const predicted=clamp(targetSpeed+accel*3.6*Math.min(age,.35),0,240);speed+=(predicted-speed)*clamp(dt*6,0,1)}
- else if(lastGpsTime){speed+=(targetSpeed-speed)*clamp(dt*2,0,1);accel*=Math.exp(-dt*3)}
- gas=clamp(.16+accel/3.2,0,1);if(speed<2)gas=.08;
- }
- if(gear<6&&speed>shiftUp[gear-1]+4)gear++;
- if(gear>1&&speed<shiftDown[gear-1]-4)gear--;
- const wheelRPM=speed*ratios[gear-1]*31;
- const desiredRPM=clamp(850+wheelRPM+gas*1050,850,7200);
- rpm+=(desiredRPM-rpm)*clamp(dt*(desiredRPM>rpm?8:5),0,1);
- const now=ctx.currentTime,fireHz=rpm/60*4;
- pulseOsc.frequency.setTargetAtTime(fireHz,now,.035);if(sampleSource){sampleSource.playbackRate.setTargetAtTime(clamp(rpm/2200,.5,2.7),now,.08);sampleGain.gain.setTargetAtTime(.45+.25*gas,now,.06)}
- rumbleOsc.frequency.setTargetAtTime(clamp(fireHz*.5,28,105),now,.05);
- for(const n of engineNodes)n.o.frequency.setTargetAtTime(fireHz*n.m,now,.035);
- const bass=Number($('bass').value)/100, loud=Number($('volume').value)/100;
- exhaustFilter.frequency.setTargetAtTime(210+rpm*.075+gas*430,now,.06);
- exhaustFilter2.frequency.setTargetAtTime(85+rpm*.024,now,.08);
- intakeFilter.frequency.setTargetAtTime(430+rpm*.22+gas*400,now,.08);
- pulseGain.gain.setTargetAtTime(loaded.length?.10+.07*gas:.16+.14*gas,now,.05);
- rumbleGain.gain.setTargetAtTime(bass*(.08+.13*gas),now,.06);
- exhaustGain.gain.setTargetAtTime(.035+.065*gas,now,.07);
- intakeGain.gain.setTargetAtTime(.006+.11*gas,now,.07);
- output.gain.setTargetAtTime(loud*.72,now,.05);
- $('speed').textContent=Math.round(speed);$('rpm').textContent=Math.round(rpm/50)*50;$('gear').textContent=gear;
- $('fill').style.width=(rpm/7200*100)+'%';$('throttleLabel').textContent='Gas: '+Math.round(gas*100)+'%';
- $('diag').textContent=demo?'Testmodus: Gaspedal '+Math.round(gas*100)+'%':lastGpsTime?'GPS-Wert zuletzt vor '+((t-lastGpsTime)/1000).toFixed(1)+' s empfangen. Beschleunigungsschätzung: '+accel.toFixed(2)+' m/s².':'Warte auf ersten GPS-Geschwindigkeitswert.';
- requestAnimationFrame(tick);
-}
-document.addEventListener('visibilitychange',()=>{if(started&&document.hidden)setStatus('Browser im Hintergrund – Audio und GPS können eingeschränkt sein.');else if(started)setStatus('Motor läuft.')});
+el('stop').onclick=function(){
+ running=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}
+ if(ctx){ctx.close().catch(()=>{});ctx=null}osc=[];el('start').disabled=false;el('stop').disabled=true;el('status').textContent='Motor gestoppt';
+};
+el('test').onclick=function(){test=!test;el('test').textContent=test?'Testmodus deaktivieren':'Testmodus aktivieren';el('mode').textContent=test?'Testmodus · GPS wird ignoriert':'GPS-Modus'};
+for(const [id,out] of [['volume','volLabel'],['bass','bassLabel'],['pedal','gasLabel']])el(id).oninput=function(){el(out).textContent=this.value+'%'};
 })();
-</script></body></html
- const loaded=layers.filter(x=>x.source||(x.element&&x.element.readyState>=3&&!x.element.paused));
- if(loaded.length){
- const sorted=loaded.slice().sort((a,b)=>a.rpm-b.rpm);
- let low=sorted[0],high=sorted[sorted.length-1],mix=0;
- if(rpm<=low.rpm){high=low}
- else if(rpm>=high.rpm){low=high}
- else for(let i=0;i<sorted.length-1;i++)if(rpm>=sorted[i].rpm&&rpm<sorted[i+1].rpm){low=sorted[i];high=sorted[i+1];mix=(rpm-low.rpm)/(high.rpm-low.rpm);break}
- for(const layer of loaded){
- const weight=layer===low&&layer===high?1:layer===low?Math.cos(mix*Math.PI/2):layer===high?Math.sin(mix*Math.PI/2):0;
- layer.gain.gain.setTargetAtTime(weight*(.42+.30*gas),now,.09);
- layer.source.playbackRate.setTargetAtTime(clamp(rpm/layer.rpm,.72,1.42),now,.09);
- }
- }
->
+</script></body></html>
