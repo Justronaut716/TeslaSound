@@ -9,7 +9,7 @@
 (function(){
 'use strict';
 const el=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-let ctx,master,filter,osc=[],noise,noiseGain,noiseFilter,exhaust,exhaustGain,exhaustFilter,watch=null,running=false,test=false,speed=0,targetSpeed=0,rpm=850,accel=0,lastGPS=0,lastSpeed=0,lastTime=0;
+let ctx,master,filter,osc=[],noise,noiseGain,noiseFilter,watch=null,running=false,test=false,speed=0,targetSpeed=0,rpm=850,accel=0,lastGPS=0,lastSpeed=0,lastTime=0;
 async function beep(){
  try{
  const ac=new (window.AudioContext||window.webkitAudioContext)();
@@ -22,20 +22,14 @@ el('beep').onclick=beep;
 function audio(){
  ctx=new (window.AudioContext||window.webkitAudioContext)();
  master=ctx.createGain();master.gain.value=0;
- const limiter=ctx.createDynamicsCompressor();limiter.threshold.value=-12;limiter.knee.value=12;limiter.ratio.value=3;limiter.attack.value=.012;limiter.release.value=.22;master.connect(limiter);limiter.connect(ctx.destination);
+ const limiter=ctx.createDynamicsCompressor();limiter.threshold.value=-19;limiter.ratio.value=7;limiter.attack.value=.005;limiter.release.value=.15;master.connect(limiter);limiter.connect(ctx.destination);
  filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=400;filter.Q.value=.65;filter.connect(master);
- for(const h of [{mult:.5,vol:.17,type:'sine'},{mult:1,vol:.12,type:'triangle'},{mult:2,vol:.045,type:'sine'}]){
+ for(const h of [{mult:.5,vol:.19,type:'triangle'},{mult:1,vol:.20,type:'sawtooth'},{mult:2,vol:.10,type:'triangle'},{mult:3,vol:.04,type:'sawtooth'}]){
  const o=ctx.createOscillator(),g=ctx.createGain();o.type=h.type;g.gain.value=h.vol;o.connect(g);g.connect(filter);o.start();osc.push({o,mult:h.mult});
  }
  const buf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate),data=buf.getChannelData(0);let brown=0;
  for(let i=0;i<data.length;i++){const w=Math.random()*2-1;brown=(brown+.06*w)/1.06;data[i]=brown*.6+w*.2}
  noise=ctx.createBufferSource();noise.buffer=buf;noise.loop=true;noiseFilter=ctx.createBiquadFilter();noiseFilter.type='bandpass';noiseFilter.frequency.value=140;noiseFilter.Q.value=.8;noiseGain=ctx.createGain();noiseGain.gain.value=.035;noise.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(master);noise.start();
- // Rounded exhaust tone without hard clipping or aggressive distortion.
- const wave=ctx.createPeriodicWave(new Float32Array([0,1,.24,.10,.04]),new Float32Array(5));
- exhaust=ctx.createOscillator();exhaust.setPeriodicWave(wave);
- exhaustFilter=ctx.createBiquadFilter();exhaustFilter.type='lowpass';exhaustFilter.frequency.value=340;exhaustFilter.Q.value=.55;
- exhaustGain=ctx.createGain();exhaustGain.gain.value=.07;
- exhaust.connect(exhaustFilter);exhaustFilter.connect(exhaustGain);exhaustGain.connect(master);exhaust.start();
 }
 function gpsStart(){
  if(!navigator.geolocation){el('gps').textContent='GPS nicht unterstützt';return}
@@ -58,13 +52,10 @@ function frame(t){
  rpm+=(desired-rpm)*clamp(dt*7,0,1);
  const now=ctx.currentTime,hz=rpm/60*4,vol=Number(el('volume').value)/100,bass=Number(el('bass').value)/100;
  for(const o of osc)o.o.frequency.setTargetAtTime(Math.max(20,hz*o.mult),now,.04);
- filter.frequency.setTargetAtTime(Math.min(520,190+rpm*.035+gas*95),now,.09);
- noiseFilter.frequency.setTargetAtTime(Math.min(450,120+rpm*.035),now,.10);
- noiseGain.gain.setTargetAtTime(.025+gas*.065,now,.10);
- exhaust.frequency.setTargetAtTime(hz*(1+.003*Math.sin(t*.006)),now,.06);
- exhaustFilter.frequency.setTargetAtTime(Math.min(720,220+rpm*.055+gas*140),now,.09);
- exhaustGain.gain.setTargetAtTime(.065+gas*.075,now,.08);
- master.gain.setTargetAtTime(vol*(.32+.12*gas)*(.6+.4*bass),now,.08);
+ filter.frequency.setTargetAtTime(230+rpm*.055+gas*380,now,.08);
+ noiseFilter.frequency.setTargetAtTime(90+rpm*.045,now,.08);
+ noiseGain.gain.setTargetAtTime(.025+gas*.09,now,.08);
+ master.gain.setTargetAtTime(vol*(.25+.26*gas)*(.55+.45*bass),now,.05);
  el('speed').textContent=Math.round(speed);el('rpm').textContent=Math.round(rpm/50)*50;
  requestAnimationFrame(frame);
 }
