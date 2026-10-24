@@ -1,0 +1,9 @@
+{
+  "name": "teslasound",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-isolation=none tests/*.test.js",
+    "test:browser": "python3 tests/browser_smoke.py"
+  }
+}
