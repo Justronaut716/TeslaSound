@@ -9,7 +9,7 @@
 (function(){
 'use strict';
 const el=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-let ctx,master,filter,osc=[],noise,noiseGain,noiseFilter,watch=null,running=false,test=false,speed=0,targetSpeed=0,rpm=850,accel=0,lastGPS=0,lastSpeed=0,lastTime=0;
+let ctx,master,filter,osc=[],noise,noiseGain,noiseFilter,exhaust,exhaustGain,exhaustFilter,watch=null,running=false,test=false,speed=0,targetSpeed=0,rpm=850,accel=0,lastGPS=0,lastSpeed=0,lastTime=0;
 async function beep(){
  try{
  const ac=new (window.AudioContext||window.webkitAudioContext)();
@@ -30,6 +30,21 @@ function audio(){
  const buf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate),data=buf.getChannelData(0);let brown=0;
  for(let i=0;i<data.length;i++){const w=Math.random()*2-1;brown=(brown+.06*w)/1.06;data[i]=brown*.6+w*.2}
  noise=ctx.createBufferSource();noise.buffer=buf;noise.loop=true;noiseFilter=ctx.createBiquadFilter();noiseFilter.type='bandpass';noiseFilter.frequency.value=140;noiseFilter.Q.value=.8;noiseGain=ctx.createGain();noiseGain.gain.value=.035;noise.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(master);noise.start();
+ // Low, irregular exhaust pulses shaped by a distorted periodic waveform.
+ const shape=new Float32Array(4096);
+ for(let i=0;i<shape.length;i++){
+ const x=i/shape.length;
+ const pulse=Math.exp(-x*26)-.55*Math.exp(-Math.pow((x-.16)*20,2));
+ shape[i]=Math.tanh(3.5*pulse);
+ }
+ const wave=ctx.createPeriodicWave(new Float32Array([0,1,.55,.35,.24,.16,.1,.07]),new Float32Array(8),{disableNormalization:false});
+ exhaust=ctx.createOscillator();exhaust.setPeriodicWave(wave);
+ const distortion=ctx.createWaveShaper();const curve=new Float32Array(2048);
+ for(let i=0;i<curve.length;i++){const x=i/1024-1;curve[i]=Math.tanh(x*3.5)}
+ distortion.curve=curve;distortion.oversample='2x';
+ exhaustFilter=ctx.createBiquadFilter();exhaustFilter.type='lowpass';exhaustFilter.frequency.value=360;
+ exhaustGain=ctx.createGain();exhaustGain.gain.value=.12;
+ exhaust.connect(distortion);distortion.connect(exhaustFilter);exhaustFilter.connect(exhaustGain);exhaustGain.connect(master);exhaust.start();
 }
 function gpsStart(){
  if(!navigator.geolocation){el('gps').textContent='GPS nicht unterstützt';return}
@@ -52,10 +67,13 @@ function frame(t){
  rpm+=(desired-rpm)*clamp(dt*7,0,1);
  const now=ctx.currentTime,hz=rpm/60*4,vol=Number(el('volume').value)/100,bass=Number(el('bass').value)/100;
  for(const o of osc)o.o.frequency.setTargetAtTime(Math.max(20,hz*o.mult),now,.04);
- filter.frequency.setTargetAtTime(230+rpm*.055+gas*380,now,.08);
+ filter.frequency.setTargetAtTime(145+rpm*.034+gas*220,now,.08);
  noiseFilter.frequency.setTargetAtTime(90+rpm*.045,now,.08);
- noiseGain.gain.setTargetAtTime(.025+gas*.09,now,.08);
- master.gain.setTargetAtTime(vol*(.25+.26*gas)*(.55+.45*bass),now,.05);
+ noiseGain.gain.setTargetAtTime(.045+gas*.17,now,.08);
+ exhaust.frequency.setTargetAtTime(hz*(1+.012*Math.sin(t*.018)),now,.025);
+ exhaustFilter.frequency.setTargetAtTime(230+rpm*.09+gas*850,now,.045);
+ exhaustGain.gain.setTargetAtTime(.15+gas*.23,now,.045);
+ master.gain.setTargetAtTime(vol*(.29+.29*gas)*(.55+.45*bass),now,.05);
  el('speed').textContent=Math.round(speed);el('rpm').textContent=Math.round(rpm/50)*50;
  requestAnimationFrame(frame);
 }
