@@ -1,74 +1,88 @@
-<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TeslaSound V8</title><style>
-*{box-sizing:border-box}body{background:#0c121b;color:#f4f7fc;font:16px system-ui;margin:0}main{max-width:750px;margin:auto;padding:22px}h1{font-size:32px;margin:8px 0}p,small{color:#b2c0d2;line-height:1.5}.card{background:#192637;border:1px solid #32465d;border-radius:16px;padding:18px;margin:15px 0}button{border:0;background:#3986fa;color:white;border-radius:12px;padding:14px 20px;font-size:17px;font-weight:bold;margin:4px 5px 4px 0}button:disabled{opacity:.5}.secondary{background:#344a65}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.grid .card{margin:0}.value{font-size:34px;font-weight:750}input[type=range]{width:100%;accent-color:#60a5fa;height:34px}label{display:block;margin-top:14px}#status{color:#b9dbff}
-</style></head><body><main><small>TESLA MODEL 3 · V8 SIMULATOR</small><h1>TeslaSound</h1><p>Virtueller Motorsound mit tiefem Auspuffgrollen. Bitte nur im Stand bedienen.</p>
-<div class="card"><button id="start">▶ Motor starten</button><button id="stop" class="secondary" disabled>■ Stoppen</button><button id="beep" class="secondary">🔊 Lautsprechertest</button><p id="status">Bereit. Erst Motor starten, dann Testmodus aktivieren.</p></div>
-<div class="grid"><div class="card"><small>Geschwindigkeit</small><div class="value"><span id="speed">0</span> <small>km/h</small></div></div><div class="card"><small>Drehzahl</small><div class="value"><span id="rpm">850</span> <small>RPM</small></div></div></div>
-<div class="card"><strong>Sound & Test</strong><label>Lautstärke: <span id="volLabel">35%</span></label><input id="volume" type="range" min="0" max="100" value="35"><label>Bass: <span id="bassLabel">70%</span></label><input id="bass" type="range" min="0" max="100" value="70"><button id="test" class="secondary">Testmodus aktivieren</button><label>Virtuelles Gaspedal: <span id="gasLabel">0%</span></label><input id="pedal" type="range" min="0" max="100" value="0"><p id="mode">GPS-Modus</p></div>
-<div class="card"><strong>GPS / Diagnose</strong><p id="gps">GPS noch nicht gestartet.</p><small>Im Testmodus wird kein GPS benötigt. Beim Minimieren des Browsers kann die Wiedergabe unterbrochen werden.</small></div></main>
-<script>
-(function(){
-'use strict';
-const el=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-let ctx,master,filter,osc=[],noise,noiseGain,noiseFilter,watch=null,running=false,test=false,speed=0,targetSpeed=0,rpm=850,accel=0,lastGPS=0,lastSpeed=0,lastTime=0;
-async function beep(){
- try{
- const ac=new (window.AudioContext||window.webkitAudioContext)();
- const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=440;g.gain.value=.16;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+.65);
- el('status').textContent='Testton gestartet · AudioContext: '+ac.state;
- setTimeout(()=>ac.close().catch(()=>{}),900);
- }catch(e){el('status').textContent='Testton fehlgeschlagen: '+e.message}
-}
-el('beep').onclick=beep;
-function audio(){
- ctx=new (window.AudioContext||window.webkitAudioContext)();
- master=ctx.createGain();master.gain.value=0;
- const limiter=ctx.createDynamicsCompressor();limiter.threshold.value=-19;limiter.ratio.value=7;limiter.attack.value=.005;limiter.release.value=.15;master.connect(limiter);limiter.connect(ctx.destination);
- filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=400;filter.Q.value=.65;filter.connect(master);
- for(const h of [{mult:.5,vol:.19,type:'triangle'},{mult:1,vol:.20,type:'sawtooth'},{mult:2,vol:.10,type:'triangle'},{mult:3,vol:.04,type:'sawtooth'}]){
- const o=ctx.createOscillator(),g=ctx.createGain();o.type=h.type;g.gain.value=h.vol;o.connect(g);g.connect(filter);o.start();osc.push({o,mult:h.mult});
- }
- const buf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate),data=buf.getChannelData(0);let brown=0;
- for(let i=0;i<data.length;i++){const w=Math.random()*2-1;brown=(brown+.06*w)/1.06;data[i]=brown*.6+w*.2}
- noise=ctx.createBufferSource();noise.buffer=buf;noise.loop=true;noiseFilter=ctx.createBiquadFilter();noiseFilter.type='bandpass';noiseFilter.frequency.value=140;noiseFilter.Q.value=.8;noiseGain=ctx.createGain();noiseGain.gain.value=.035;noise.connect(noiseFilter);noiseFilter.connect(noiseGain);noiseGain.connect(master);noise.start();
-}
-function gpsStart(){
- if(!navigator.geolocation){el('gps').textContent='GPS nicht unterstützt';return}
- watch=navigator.geolocation.watchPosition(p=>{
- const v=p.coords.speed;if(v===null||!Number.isFinite(v)){el('gps').textContent='GPS aktiv, noch keine Geschwindigkeit';return}
- const t=performance.now(),dt=(t-lastGPS)/1000,next=Math.max(0,v*3.6);
- if(lastGPS&&dt>.08&&dt<5)accel=clamp(accel*.6+((next-lastSpeed)/3.6/dt)*.4,-4,4);
- targetSpeed=next;lastSpeed=next;lastGPS=t;
- el('gps').textContent='GPS: '+next.toFixed(1)+' km/h · Intervall '+(dt>0?Math.round(dt*1000)+' ms':'–');
- },e=>{el('gps').textContent='GPS: '+e.message},{enableHighAccuracy:true,maximumAge:0,timeout:15000});
-}
-function frame(t){
- if(!running||!ctx)return;
- const dt=clamp((t-lastTime)/1000,.001,.1);lastTime=t;
- let gas;
- if(test){gas=Number(el('pedal').value)/100;speed+=clamp(gas*150-speed,-38*dt,28*dt)}
- else{speed+=(targetSpeed-speed)*clamp(dt*5,0,1);gas=clamp(.1+accel/3,0,1);if(lastGPS&&t-lastGPS>2500)accel*=.96}
- const gear=speed<32?1:speed<58?2:speed<88?3:speed<122?4:speed<165?5:6;
- const ratios=[3.4,2.5,1.85,1.42,1.12,.91],desired=clamp(850+speed*ratios[gear-1]*30+gas*1250,850,6800);
- rpm+=(desired-rpm)*clamp(dt*7,0,1);
- const now=ctx.currentTime,hz=rpm/60*4,vol=Number(el('volume').value)/100,bass=Number(el('bass').value)/100;
- for(const o of osc)o.o.frequency.setTargetAtTime(Math.max(20,hz*o.mult),now,.04);
- filter.frequency.setTargetAtTime(230+rpm*.055+gas*380,now,.08);
- noiseFilter.frequency.setTargetAtTime(90+rpm*.045,now,.08);
- noiseGain.gain.setTargetAtTime(.025+gas*.09,now,.08);
- master.gain.setTargetAtTime(vol*(.25+.26*gas)*(.55+.45*bass),now,.05);
- el('speed').textContent=Math.round(speed);el('rpm').textContent=Math.round(rpm/50)*50;
- requestAnimationFrame(frame);
-}
-el('start').onclick=async function(){
- if(running)return;
- try{audio();await ctx.resume();running=true;el('start').disabled=true;el('stop').disabled=false;el('status').textContent='Motor läuft · Audio: '+ctx.state;gpsStart();lastTime=performance.now();requestAnimationFrame(frame)}
- catch(e){el('status').textContent='Audiofehler: '+e.message}
-};
-el('stop').onclick=function(){
- running=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}
- if(ctx){ctx.close().catch(()=>{});ctx=null}osc=[];el('start').disabled=false;el('stop').disabled=true;el('status').textContent='Motor gestoppt';
-};
-el('test').onclick=function(){test=!test;el('test').textContent=test?'Testmodus deaktivieren':'Testmodus aktivieren';el('mode').textContent=test?'Testmodus · GPS wird ignoriert':'GPS-Modus'};
-for(const [id,out] of [['volume','volLabel'],['bass','bassLabel'],['pedal','gasLabel']])el(id).oninput=function(){el(out).textContent=this.value+'%'};
-})();
-</script></body></html>
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c121b">
+  <title>TeslaSound · V8 Engine</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<main>
+  <header><small class="eyebrow">TESLA BROWSER · V8 SOUND ENGINE</small>
+    <h1>TeslaSound<span class="accent">.</span></h1>
+    <p>V8-Grollen, das auf deine Fahrt reagiert. Bitte nur im Stand bedienen.</p>
+  </header>
+  <section class="card" aria-labelledby="outputTitle">
+    <h2 id="outputTitle">Gerät & Ausgabe</h2>
+    <label for="deviceMode">Wiedergabemodus</label>
+    <select id="deviceMode">
+      <option value="tesla">Direkt im Tesla-Browser</option>
+      <option value="phone">Handy → Bluetooth im Tesla</option>
+    </select>
+    <div id="phoneHelp" hidden>
+      <ol>
+        <li>Handy per Bluetooth mit dem Tesla koppeln und im Tesla die Audioquelle Bluetooth wählen.</li>
+        <li>Diese Website auf dem Handy öffnen und in dessen Audioauswahl den Tesla als Ausgabe wählen.</li>
+        <li>Motor starten, Standort freigeben und die Verbindung mit dem Lautsprechertest prüfen.</li>
+      </ol>
+      <p class="hint">Die Sound-Engine nutzt das GPS des Handys. Bluetooth fügt zusätzliche, geräteabhängige Verzögerung hinzu. Die Website kann die Bluetooth-Verbindung weder herstellen noch überprüfen; ohne gewählte Bluetooth-Ausgabe hörst du den Ton am Handy.</p>
+      <p id="phoneStatus" role="status">Bildschirmschutz wird beim Motorstart aktiviert, sofern verfügbar.</p>
+      <small>Browser im Vordergrund lassen. Nach App-Wechsel, Anruf oder Wechsel der Audioausgabe bei Bedarf „Audio fortsetzen“ antippen.</small>
+    </div>
+  </section>
+  <section class="card" aria-label="Motorsteuerung">
+    <div class="toolbar">
+      <button id="start">▶ Motor starten</button>
+      <button id="stop" class="secondary" disabled>■ Stoppen</button>
+      <button id="beep" class="secondary">Lautsprechertest</button>
+    </div>
+    <p id="status" role="status">Bereit. Motor starten oder den Testmodus wählen.</p>
+    <div class="state-row"><span id="driveState" class="state" data-state="unknown">Keine aktuellen Fahrdaten</span><small id="mode">GPS-Modus</small></div>
+  </section>
+  <section class="metrics" aria-label="Fahrdaten">
+    <div class="card"><small>Geschwindigkeit</small><div class="value"><span id="speed">—</span><small>km/h</small></div></div>
+    <div class="card"><small>Drehzahl</small><div class="value"><span id="rpm">850</span><small>RPM</small></div></div>
+    <div class="card"><small>Virtueller Gang</small><div class="value" id="gear">N</div></div>
+    <div class="card"><small>Beschleunigung · geschätzt</small><div class="value compact"><span id="acceleration">—</span><small>m/s²</small></div></div>
+  </section>
+  <section class="card" aria-labelledby="soundTitle">
+    <h2 id="soundTitle">Dein Sound</h2>
+    <label for="volume">Lautstärke <span id="volLabel">35%</span></label>
+    <input id="volume" type="range" min="0" max="100" value="35">
+    <label for="bass">Auspuffbass <span id="bassLabel">70%</span></label>
+    <input id="bass" type="range" min="0" max="100" value="70">
+    <p class="hint">Zwei pulsierende Zylinderbänke, Auspuffresonanzen und lastabhängiges Ansauggeräusch. Bei Verzögerung wird der Klang zurückgenommen.</p>
+  </section>
+  <section class="card" aria-labelledby="testTitle">
+    <div class="section-row"><h2 id="testTitle">Probefahrt im Stand</h2><button id="test" class="secondary" aria-pressed="false">Testmodus aktivieren</button></div>
+    <div id="testControls">
+      <label for="pedal">Virtuelles Gaspedal <span id="gasLabel">0%</span></label>
+      <input id="pedal" type="range" min="0" max="100" value="0" disabled>
+      <label for="brake">Virtuelle Bremse <span id="brakeLabel">0%</span></label>
+      <input id="brake" type="range" min="0" max="100" value="0" disabled>
+      <button id="hold" class="secondary" aria-pressed="false" disabled>Tempo halten</button>
+    </div>
+    <small>Im Testmodus sind Gas und Bremse simuliert; GPS wird nicht verwendet.</small>
+  </section>
+  <section class="card" aria-labelledby="diagnosticsTitle">
+    <h2 id="diagnosticsTitle">Verbindung & Reaktionszeit</h2>
+    <p id="gps">GPS noch nicht gestartet.</p>
+    <dl class="diagnostics">
+      <div><dt>Audio-Engine</dt><dd id="audioBackend">—</dd></div>
+      <div><dt>Audio-Puffer¹</dt><dd id="audioBuffer">—</dd></div>
+      <div><dt>Audio-Ausgabe¹</dt><dd id="audioOutput">—</dd></div>
+      <div><dt>Regeltakt</dt><dd>20 ms · GPS sofort</dd></div>
+      <div><dt>GPS-Intervall</dt><dd id="gpsInterval">—</dd></div>
+      <div><dt>GPS-Messwertalter</dt><dd id="gpsAge">—</dd></div>
+    </dl>
+    <p class="hint">¹ Vom Browser gemeldete Werte, keine gemessene Gesamtverzögerung. GPS bestimmt, wie früh eine Fahränderung erkennbar ist. Die kurze Vorhersage ist eine Schätzung und ersetzt keine Pedaldaten.</p>
+    <small>Bremsen, Rekuperation und Ausrollen lassen sich anhand von GPS nicht sicher unterscheiden. Der Tesla-Browser stellt dieser Website keine Pedal- oder CAN-Daten bereit. Beim Minimieren kann der Browser Audio oder GPS pausieren.</small>
+  </section>
+  <footer>Lokale Klangerzeugung · Keine Übertragung deiner Positionsdaten</footer>
+  <noscript>Bitte JavaScript aktivieren, um die Sound-Engine zu verwenden.</noscript>
+</main>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>
