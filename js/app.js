@@ -1,5 +1,5 @@
-import { DrivingModel, speedFromPosition, clamp } from './driving-model.js?v=20261025-quality';
-import { GPS_LIMITS, readGPSPosition } from './gps-input.js';
+import { DrivingModel, speedFromPosition, clamp } from './driving-model.js?v=20261025-clock';
+import { GPS_LIMITS, readGPSPosition } from './gps-input.js?v=20261025-clock';
 import { Drivetrain } from './drivetrain.js';
 import { AudioEngine } from './audio-engine.js';
 import { PhonePlaybackSession } from './phone-playback.js';
@@ -94,6 +94,10 @@ function startGPS() {
       if (current) {
         const lastPosition = positions[positions.length - 1];
         if (lastPosition && Boolean(lastPosition.timeEstimated) !== Boolean(current.timeEstimated)) positions = [];
+        else if (current.timeEstimated && lastPosition?.timeEstimated && Number.isFinite(current.rawTimestamp)
+          && Number.isFinite(lastPosition.rawTimestamp) && current.rawTimestamp <= lastPosition.rawTimestamp) {
+          reportGPS(`GPS: Zeitstempel unverändert oder rückwärts. ${input.diagnostic}`); return;
+        }
         // An out-of-order fix must not erase newer history. The loop below
         // skips negative/short intervals and only newer positions are appended.
         positions = positions.filter(p => current.timestamp - p.timestamp <= GPS_LIMITS.positionWindowMs);

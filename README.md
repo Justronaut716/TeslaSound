@@ -45,6 +45,18 @@ Die Verarbeitung verwendet kein `Array.prototype.at`, damit weitere Messwerte
 auch auf älteren eingebetteten Chromium-Versionen verarbeitet werden können.
 Der GPS-Browsertest schaltet diese API gezielt ab und prüft mehrere Messungen.
 
+GPS-Zeitstempel in Unix-Sekunden nahe der Browser-Uhr werden vor der Altersprüfung
+in Millisekunden umgerechnet. Die diagnostische Angabe „GPS-Zeit in Sekunden
+normalisiert“ macht das sichtbar. Ein Test bildet den fotografierten Fehler von
+`1752186186.7 s` exakt nach; korrekt beträgt das Messwertalter dort 826 ms.
+Relative Zeitstempel mit unbekanntem Ursprung werden nicht von `Date.now()`
+abgezogen: Die Anzeige kennzeichnet unbekanntes Alter und nutzt die Empfangszeit,
+ohne Vorhersage. Positive Rohzeitstempel bleiben für Reihenfolge- und
+Duplikatprüfung erhalten; wiederholte relative Werte erneuern die Engine nicht.
+Ein Sekundenwert wird nur bei plausibler zeitlicher Nähe (24 h) zur Browser-Uhr
+als Unix-Zeit erkannt; andere kleine Werte bleiben ausdrücklich unbekannte
+Zeitbasen. Die normale Fünf-Sekunden-Grenze bleibt für erkennbare Messzeiten aktiv.
+
 ## Was die Reaktion beschleunigt
 
 ### Handy → Bluetooth im Tesla

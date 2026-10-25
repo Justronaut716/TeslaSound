@@ -75,3 +75,41 @@ test('position differentiation never mixes acquisition time with receipt time', 
   assert.equal(speedFromPosition(a, b), null, 'different clocks must not produce a false 2.5 m/s speed');
   assert(Math.abs(speedFromPosition(b, c) - 10) < 0.1);
 });
+
+test('normalizes Unix seconds and reproduces the 55-year age shown in the Tesla photo', () => {
+  const vehicleWall = 1753940126826, timestampSeconds = 1753940126;
+  // Treating seconds as milliseconds produced exactly the photographed error.
+  assert.equal(((vehicleWall - timestampSeconds) / 1000).toFixed(1), '1752186186.7');
+  const input = readGPSPosition({...position(12), timestamp: timestampSeconds}, 10000, vehicleWall);
+  assert.equal(input.error, null);
+  assert.equal(input.fix.timestamp, 9174);
+  assert.equal(input.fix.timeEstimated, false);
+  assert.match(input.diagnostic, /Sekunden/);
+  assert.match(input.diagnostic, /0\.8 s/);
+});
+
+test('stale and future Unix-second timestamps retain the normal age checks', () => {
+  assert.match(readGPSPosition({...position(12), timestamp:(wall - 12000) / 1000}, 10000, wall).error, /12\.0 s/);
+  assert.match(readGPSPosition({...position(12), timestamp:(wall + 4000) / 1000}, 10000, wall).error, /Zukunft/);
+});
+
+test('relative timestamp origins are marked unknown instead of compared with Unix time', () => {
+  for (const timestamp of [4321, 123456789, 9876543210]) {
+    const input = readGPSPosition({...position(12), timestamp}, 10000, wall);
+    assert.equal(input.error, null);
+    assert.equal(input.fix.timestamp, 10000);
+    assert.equal(input.fix.timeEstimated, true);
+    assert.equal(input.fix.rawTimestamp, timestamp);
+    assert.match(input.diagnostic, /Zeitbasis unbekannt/);
+  }
+});
+
+test('repeated relative timestamps cannot keep cached speed alive or invent position movement', () => {
+  const model = new DrivingModel();
+  const a = readGPSPosition({...position(12), timestamp:4321}, 10000, wall);
+  const b = readGPSPosition({...position(12), timestamp:4321}, 11000, wall);
+  assert(model.pushGPS(a.fix, 10000));
+  assert.equal(model.pushGPS(b.fix, 11000), false);
+  assert.equal(speedFromPosition(a.position, {...b.position, latitude:52.5202}), null);
+  assert.equal(model.snapshot(14000).stale, true);
+});

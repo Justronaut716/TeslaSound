@@ -1,11 +1,13 @@
 // SI units throughout: m/s, m/s² and monotonic milliseconds.
-import { GPS_LIMITS } from './gps-input.js';
+import { GPS_LIMITS } from './gps-input.js?v=20261025-clock';
 export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 
 export function speedFromPosition(previous, current) {
   if (!previous || !current) return null;
   if (Boolean(previous.timeEstimated) !== Boolean(current.timeEstimated)) return null;
+  if (current.timeEstimated && finite(previous.rawTimestamp) && finite(current.rawTimestamp)
+    && current.rawTimestamp <= previous.rawTimestamp) return null;
   for (const p of [previous, current]) {
     if (![p.latitude, p.longitude, p.accuracy, p.timestamp].every(finite)
       || Math.abs(p.latitude) > 90 || Math.abs(p.longitude) > 180
@@ -46,6 +48,8 @@ export class DrivingModel {
     if (![speed, timestamp, now].every(finite) || speed < 0 || speed > 90 || !validAccuracy
       || timestamp > now + GPS_LIMITS.futureToleranceMs || now - timestamp > GPS_LIMITS.maxAgeMs) return false;
     const timeEstimated = Boolean(fix.timeEstimated);
+    if (timeEstimated && this.last?.timeEstimated && finite(fix.rawTimestamp) && finite(this.last.rawTimestamp)
+      && fix.rawTimestamp <= this.last.rawTimestamp) return false;
     const timebaseChanged = this.last && this.last.timeEstimated !== timeEstimated;
     const dt = this.last ? (timestamp - this.last.timestamp) / 1000 : null;
     if (!timebaseChanged && dt !== null && dt <= 0) return false;
@@ -67,7 +71,7 @@ export class DrivingModel {
       this.speed = clamp(prior + (speed - prior) * correction, 0, 90);
       this.interval = this.interval === null ? dt * 1000 : this.interval * 0.7 + dt * 300;
     }
-    this.last = { speed, timestamp, accuracy, source: fix.source || 'speed', timeEstimated,
+    this.last = { speed, timestamp, accuracy, source: fix.source || 'speed', timeEstimated, rawTimestamp: fix.rawTimestamp,
       receivedAt: now, ageAtReceipt: Math.max(0, now - timestamp) };
     return true;
   }
