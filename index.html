@@ -37,8 +37,10 @@
       <button id="start">▶ Motor starten</button>
       <button id="stop" class="secondary" disabled>■ Stoppen</button>
       <button id="beep" class="secondary">Lautsprechertest</button>
+      <button id="gpsRetry" class="secondary" disabled>GPS neu verbinden</button>
     </div>
     <p id="status" role="status">Bereit. Motor starten oder den Testmodus wählen.</p>
+    <p id="gpsSummary" class="hint" role="status">GPS startet mit dem Motor.</p>
     <div class="state-row"><span id="driveState" class="state" data-state="unknown">Keine aktuellen Fahrdaten</span><small id="mode">GPS-Modus</small></div>
   </section>
   <section class="metrics" aria-label="Fahrdaten">
@@ -80,6 +82,7 @@
       <div><dt>Regeltakt</dt><dd>20 ms · GPS sofort</dd></div>
       <div><dt>GPS-Intervall</dt><dd id="gpsInterval">—</dd></div>
       <div><dt>GPS-Messwertalter</dt><dd id="gpsAge">—</dd></div>
+      <div><dt>GPS empfangen / verarbeitet</dt><dd id="gpsReceived">0 / 0</dd></div>
     </dl>
     <p class="hint">¹ Vom Browser gemeldete Werte, keine gemessene Gesamtverzögerung. GPS bestimmt, wie früh eine Fahränderung erkennbar ist. Die kurze Vorhersage ist eine Schätzung und ersetzt keine Pedaldaten.</p>
     <small>Bremsen, Rekuperation und Ausrollen lassen sich anhand von GPS nicht sicher unterscheiden. Der Tesla-Browser stellt dieser Website keine Pedal- oder CAN-Daten bereit. Beim Minimieren kann der Browser Audio oder GPS pausieren.</small>
@@ -87,6 +90,6 @@
   <footer>Lokale Klangerzeugung · Keine Übertragung deiner Positionsdaten</footer>
   <noscript>Bitte JavaScript aktivieren, um die Sound-Engine zu verwenden.</noscript>
 </main>
-<script type="module" src="./js/app.js"></script>
+<script type="module" src="./js/app.js?v=20261025-gps"></script>
 </body>
 </html>
