@@ -1,7 +1,9 @@
 import { clamp } from './driving-model.js';
+import { getPreset } from './engine-presets.js';
 
 export class AudioEngine {
-  constructor() {
+  constructor(presetId) {
+    this.preset = getPreset(presetId);
     this.ctx = null;
     this.backend = null;
     this.sources = [];
@@ -23,7 +25,10 @@ export class AudioEngine {
       if (!ctx.audioWorklet || !window.AudioWorkletNode) throw new Error('AudioWorklet nicht verfügbar');
       await ctx.audioWorklet.addModule(new URL('./engine-worklet.js', import.meta.url));
       if (this.ctx !== ctx || ctx.state === 'closed') return false;
-      this.node = new AudioWorkletNode(ctx, 'teslasound-v8', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1] });
+      this.node = new AudioWorkletNode(ctx, 'teslasound-v8', {
+        numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
+        parameterData: { preset: this.preset.index }, processorOptions: { presetId: this.preset.id }
+      });
       this.node.connect(this.master);
       this.node.onprocessorerror = () => {
         if (this.ctx !== ctx || ctx.state === 'closed') return;
@@ -44,35 +49,8 @@ export class AudioEngine {
   createFallback() {
     const ctx = this.ctx;
     this.backend = 'Web Audio (Kompatibilität)';
-    this.fallback = ctx.createGain();
-    this.fallback.gain.value = 0.2;
-    this.lowpass = ctx.createBiquadFilter();
-    this.lowpass.type = 'lowpass'; this.lowpass.frequency.value = 450; this.lowpass.Q.value = 0.65;
-    this.bassFilter = ctx.createBiquadFilter();
-    this.bassFilter.type = 'lowshelf'; this.bassFilter.frequency.value = 120;
-    const dc = ctx.createBiquadFilter(); dc.type = 'highpass'; dc.frequency.value = 18;
-    const limiter = ctx.createWaveShaper();
-    limiter.curve = Float32Array.from({ length: 2049 }, (_, i) => 0.9 * Math.tanh((i / 1024 - 1) * 1.5));
-    // No compressor lookahead, convolution tail, ScriptProcessor or audio queue.
-    this.fallback.connect(this.lowpass); this.lowpass.connect(this.bassFilter);
-    this.bassFilter.connect(dc); dc.connect(limiter); limiter.connect(this.master);
-    this.oscillators = [];
-    for (const bank of [[0, 3, 5, 6], [1, 2, 4, 7]]) {
-      const real = new Float32Array(65), imag = new Float32Array(65);
-      for (let h = 1; h < real.length; h++) {
-        for (const cylinder of bank) {
-          const phase = h * cylinder * Math.PI / 4;
-          const envelope = 0.25 / (1 + (h * 0.17) ** 2);
-          real[h] += Math.cos(phase) * envelope;
-          imag[h] -= Math.sin(phase) * envelope;
-        }
-      }
-      const osc = ctx.createOscillator();
-      osc.setPeriodicWave(ctx.createPeriodicWave(real, imag));
-      osc.frequency.value = 850 / 120;
-      osc.connect(this.fallback); osc.start();
-      this.sources.push(osc); this.oscillators.push(osc);
-    }
+    this.voices = new Map();
+    this.activeVoice = null;
     const buffer = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     let seed = 0x12345678;
@@ -80,33 +58,104 @@ export class AudioEngine {
       seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
       data[i] = seed / 2147483648;
     }
-    const noise = ctx.createBufferSource(); noise.buffer = buffer; noise.loop = true;
-    const noiseFilter = ctx.createBiquadFilter(); noiseFilter.type = 'bandpass'; noiseFilter.frequency.value = 1200; noiseFilter.Q.value = 0.7;
-    this.noiseGain = ctx.createGain(); this.noiseGain.gain.value = 0;
-    noise.connect(noiseFilter); noiseFilter.connect(this.noiseGain); this.noiseGain.connect(this.fallback);
-    noise.start(); this.sources.push(noise);
+    this.noise = ctx.createBufferSource(); this.noise.buffer = buffer; this.noise.loop = true;
+    this.noise.start(); this.sources.push(this.noise);
+    this.activateFallback(this.preset);
+  }
+
+  createFallbackVoice(preset) {
+    const ctx = this.ctx;
+    const voice = { preset, oscillators: [] };
+    voice.tone = ctx.createGain(); voice.tone.gain.value = 0.2;
+    voice.lowpass = ctx.createBiquadFilter();
+    voice.lowpass.type = 'lowpass'; voice.lowpass.frequency.value = preset.cutoff; voice.lowpass.Q.value = 0.65;
+    voice.bass = ctx.createBiquadFilter();
+    voice.bass.type = 'lowshelf'; voice.bass.frequency.value = preset.bodyHz;
+    voice.fade = ctx.createGain(); voice.fade.gain.value = 0;
+    const dc = ctx.createBiquadFilter(); dc.type = 'highpass'; dc.frequency.value = 18;
+    const limiter = ctx.createWaveShaper();
+    limiter.curve = Float32Array.from({ length: 2049 }, (_, i) => 0.9 * Math.tanh((i / 1024 - 1) * 1.5));
+    // No compressor lookahead, convolution tail, ScriptProcessor or audio queue.
+    voice.tone.connect(voice.lowpass); voice.lowpass.connect(voice.bass);
+    voice.bass.connect(dc); dc.connect(limiter); limiter.connect(voice.fade); voice.fade.connect(this.master);
+    for (const bank of [0, 1]) {
+      const real = new Float32Array(65), imag = new Float32Array(65);
+      for (let h = 1; h < real.length; h++) {
+        for (let cylinder = 0; cylinder < preset.cylinders; cylinder++) {
+          if (preset.banks[cylinder] !== bank) continue;
+          const phase = h * cylinder * 2 * Math.PI / preset.cylinders;
+          const envelope = preset.strength[cylinder] * 2 / preset.cylinders / (1 + (h * preset.decay * 60) ** 2);
+          real[h] += Math.cos(phase) * envelope;
+          imag[h] -= Math.sin(phase) * envelope;
+        }
+      }
+      const osc = ctx.createOscillator();
+      osc.setPeriodicWave(ctx.createPeriodicWave(real, imag));
+      osc.frequency.value = preset.idle / 120;
+      osc.connect(voice.tone); osc.start();
+      this.sources.push(osc); voice.oscillators.push(osc);
+    }
+    const noiseFilter = ctx.createBiquadFilter(); noiseFilter.type = 'bandpass'; noiseFilter.frequency.value = preset.pipeHz * 2; noiseFilter.Q.value = 0.7;
+    voice.noise = ctx.createGain(); voice.noise.gain.value = 0;
+    this.noise.connect(noiseFilter); noiseFilter.connect(voice.noise); voice.noise.connect(voice.tone);
+    if (preset.turbo || preset.mechanical) {
+      voice.texture = ctx.createOscillator(); voice.texture.type = 'sine';
+      voice.textureGain = ctx.createGain(); voice.textureGain.gain.value = 0;
+      voice.texture.connect(voice.textureGain); voice.textureGain.connect(voice.bass);
+      voice.texture.start(); this.sources.push(voice.texture);
+    }
+    return voice;
+  }
+
+  activateFallback(preset) {
+    const now = this.ctx.currentTime;
+    if (this.activeVoice) {
+      this.activeVoice.fade.gain.cancelScheduledValues(now);
+      this.activeVoice.fade.gain.setTargetAtTime(0, now, 0.012);
+    }
+    let voice = this.voices.get(preset.id);
+    if (!voice) { voice = this.createFallbackVoice(preset); this.voices.set(preset.id, voice); }
+    this.activeVoice = voice;
+    this.updateFallback(voice, this.lastParams ?? { rpm: preset.idle, load: 0.035, overrun: 0, bass: 0.7 });
+    voice.fade.gain.cancelScheduledValues(now);
+    voice.fade.gain.setTargetAtTime(1, now, 0.012);
+  }
+
+  setPreset(presetId) {
+    const preset = getPreset(presetId);
+    if (preset.id === this.preset.id) return;
+    this.preset = preset;
+    if (this.node) this.node.parameters.get('preset').value = preset.index;
+    else if (this.voices && this.ctx?.state !== 'closed') this.activateFallback(preset);
+  }
+
+  updateFallback(voice, { rpm, load, overrun, bass }) {
+    const { preset } = voice, now = this.ctx.currentTime;
+    const target = (param, value) => {
+      param.cancelScheduledValues(now);
+      param.setTargetAtTime(value, now, 0.008);
+    };
+    for (const osc of voice.oscillators) target(osc.frequency, rpm / 120);
+    target(voice.tone.gain, (0.13 + load * 0.25) * preset.level);
+    target(voice.lowpass.frequency, preset.cutoff + rpm * preset.cutoffRpm + load * preset.cutoffLoad);
+    target(voice.bass.gain, -4 + bass * preset.bodyGain / 1.8 * 12);
+    target(voice.noise.gain, 0.015 + load * load * preset.intake * 3 + overrun * 0.015);
+    if (voice.texture) {
+      target(voice.texture.frequency, preset.turbo ? 750 + load * 2200 + rpm * 0.08 : rpm * (preset.cylinders / 2 + 2) / 60);
+      target(voice.textureGain.gain, (preset.turbo || preset.mechanical) * load * 0.7);
+    }
   }
 
   update({ rpm, load, overrun, volume, bass }) {
     const ctx = this.ctx;
     if (!ctx || ctx.state === 'closed') return;
-    const now = ctx.currentTime;
+    this.lastParams = { rpm, load, overrun, bass };
     if (this.node) {
       // .value changes the current parameter without appending automation events.
-      for (const [name, value] of Object.entries({ rpm, load, overrun, bass })) {
+      for (const [name, value] of Object.entries({ rpm, load, overrun, bass, preset: this.preset.index })) {
         this.node.parameters.get(name).value = value;
       }
-    } else if (this.oscillators) {
-      const target = (param, value) => {
-        param.cancelScheduledValues(now);
-        param.setTargetAtTime(value, now, 0.008);
-      };
-      for (const osc of this.oscillators) target(osc.frequency, rpm / 120);
-      target(this.fallback.gain, 0.13 + load * 0.25);
-      target(this.lowpass.frequency, 240 + rpm * 0.045 + load * 1100);
-      target(this.bassFilter.gain, -4 + bass * 12);
-      target(this.noiseGain.gain, 0.015 + load * load * 0.13 + overrun * 0.015);
-    }
+    } else if (this.activeVoice) this.updateFallback(this.activeVoice, this.lastParams);
     this.setVolume(volume);
   }
 
@@ -135,7 +184,7 @@ export class AudioEngine {
     }
     if (this.node) { this.node.onprocessorerror = null; this.node.disconnect(); this.node = null; }
     for (const source of this.sources) { source.stop(); source.disconnect(); }
-    this.sources = []; this.oscillators = null;
+    this.sources = []; this.voices = null; this.activeVoice = null;
     if (ctx.state !== 'closed') await ctx.close();
   }
 }

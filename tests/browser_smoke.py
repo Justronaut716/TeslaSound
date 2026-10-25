@@ -24,6 +24,13 @@ Thread(target=server.serve_forever, daemon=True).start()
 url = f"http://127.0.0.1:{server.server_port}/"
 instrument = """(() => {
   window.__contexts = [];
+  window.__worklets = [];
+  if (window.AudioWorkletNode) {
+    const NativeWorklet = window.AudioWorkletNode;
+    window.AudioWorkletNode = class extends NativeWorklet {
+      constructor(...args) { super(...args); window.__worklets.push(this); }
+    };
+  }
   const NativeContext = window.AudioContext;
   window.AudioContext = class extends NativeContext {
     constructor(options) { super(options); window.__contexts.push(this); }
@@ -88,6 +95,19 @@ try:
             check(page, "Number(document.querySelector('#speed').textContent) >= 12", "simulation gains speed")
             page.click("#hold")
             check(page, "document.querySelector('#driveState').textContent.includes('Konstante')", "hold simulates cruising")
+            assert page.locator('#enginePreset option').count() == 4
+            speed_before = page.locator('#speed').inner_text()
+            for index, preset in enumerate(['v8-muscle', 'i6-turbo', 'v10-supercar', 'v12-gt']):
+                page.select_option('#enginePreset', preset)
+                check(page, f"localStorage.getItem('teslasound-engine-preset') === '{preset}'", f"{preset} selection persists")
+                assert page.locator('#presetDescription').inner_text()
+                assert page.locator('#speed').inner_text() == speed_before, 'preset change reset speed'
+                assert page.evaluate('window.__contexts.length') == 1, 'preset switch recreated AudioContext'
+                if not fallback:
+                    check(page, f"window.__worklets.at(-1).parameters.get('preset').value === {index}", f"{preset} reaches actual Worklet parameter")
+            # Rapid clicks are coalesced by the Worklet; only the final choice wins.
+            page.evaluate("for (const id of ['i6-turbo','v10-supercar','v8-muscle','v12-gt']) { const select = document.querySelector('#enginePreset'); select.value = id; select.dispatchEvent(new Event('change')); }")
+            check(page, "document.querySelector('#enginePreset').value === 'v12-gt' && window.__contexts.at(-1).state === 'running'", "rapid preset switching keeps audio running")
             slider(page, "#brake", 90)
             check(page, "document.querySelector('#driveState').textContent.includes('Verzögern')", "brake overrides throttle")
             slider(page, "#volume", 0)
@@ -123,6 +143,7 @@ try:
             page.click("#test")
             page.click("#start")
             check(page, "document.querySelector('#status').textContent.includes('Motor läuft')", "restart succeeds")
+            assert page.locator('#enginePreset').input_value() == 'v12-gt', 'restart lost preset'
             page.click("#beep")
             page.click("#stop")
             check(page, "window.__contexts.every(ctx => ctx.state === 'closed')", "restart/stop cleans all contexts")
@@ -136,7 +157,47 @@ try:
                 page.set_viewport_size({"width": 390, "height": 844})
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "mobile overflow"
                 page.screenshot(path=str(ROOT / "artifacts" / "teslasound-mobile.png"), full_page=True)
+            page.reload()
+            check(page, "document.querySelector('#enginePreset').value === 'v12-gt'", "reload restores selected engine")
+            page.click('#test')
+            page.click('#start')
+            check(page, "document.querySelector('#status').textContent.includes('Motor läuft')", "saved engine finishes asynchronous startup")
+            check(page, "document.querySelector('#rpm').textContent === '900'", "saved V12 starts at its own idle RPM")
+            if not fallback:
+                check(page, "window.__worklets.at(-1).parameters.get('preset').value === 3", "saved V12 initializes actual Worklet")
+            page.click('#stop')
+            check(page, "window.__contexts.every(ctx => ctx.state === 'closed')", "saved engine closes cleanly")
             page.close()
+
+        # Render the real native fallback graph offline: labels and browser
+        # callbacks alone would not prove its four voices actually differ.
+        page = browser.new_page()
+        page.goto(url)
+        native = page.evaluate("""async () => {
+          const { AudioEngine } = await import('./js/audio-engine.js');
+          const result = [];
+          for (const [id, hz] of [['i6-turbo',150],['v8-muscle',200],['v10-supercar',250],['v12-gt',300]]) {
+            const engine = new AudioEngine(id);
+            const ctx = new OfflineAudioContext(1, 96000, 48000);
+            engine.ctx = ctx; engine.master = ctx.createGain(); engine.master.connect(ctx.destination);
+            engine.createFallback();
+            engine.update({rpm:3000,load:0.7,overrun:0,volume:0.5,bass:0.7});
+            const audio = (await ctx.startRendering()).getChannelData(0).subarray(48000);
+            let peak = 0, sum = 0;
+            const energy = frequency => {
+              let re=0, im=0;
+              for (let i=0; i<audio.length; i++) { re+=audio[i]*Math.cos(i*2*Math.PI*frequency/48000); im+=audio[i]*Math.sin(i*2*Math.PI*frequency/48000); }
+              return re*re+im*im;
+            };
+            for (const x of audio) { peak=Math.max(peak,Math.abs(x)); sum+=x*x; }
+            result.push({id, peak, rms:Math.sqrt(sum/audio.length), ratio:energy(hz)/Math.max(1e-12,energy(hz+11))});
+          }
+          return result;
+        }""")
+        for signal in native:
+            assert 0.01 < signal['rms'] and signal['peak'] < 0.96 and signal['ratio'] > 100, signal
+            print('PASS native preset signal', signal['id'])
+        page.close()
 
         # Module failure and cancellation during asynchronous startup use actual
         # AudioContexts; only the external module loading boundary is controlled.
