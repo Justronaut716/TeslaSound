@@ -1,7 +1,4 @@
-// Eight combustion events per 720° cycle. Each cross-plane bank has uneven
-// spacing; summing eight identical evenly spaced oscillators loses this texture.
-const BANK = [0, 1, 1, 0, 1, 0, 0, 1];
-const STRENGTH = [1, 0.92, 1.03, 0.96, 1.01, 0.94, 1.04, 0.97];
+import { getPreset } from './engine-presets.js';
 const bounded = (value, min, max, fallback) => Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 const param = (value, i) => typeof value === 'number' ? value : value[Math.min(i, value.length - 1)];
 
@@ -23,56 +20,73 @@ class Resonator {
 }
 
 export class V8Synth {
-  constructor(rate) {
+  constructor(rate, presetId) {
+    this.preset = getPreset(presetId);
+    const p = this.preset;
     this.rate = rate;
     this.phase = 0;
     this.cylinder = 0;
-    this.rpm = 850; this.load = 0.035; this.overrun = 0; this.bass = 0.7;
+    this.rpm = p.idle; this.load = 0.035; this.overrun = 0; this.bass = 0.7;
+    this.turboPhase = 0; this.mechanicalPhase = 0; this.boost = 0;
     this.left = this.right = this.exhaust = this.air = 0;
     this.lastX = this.lastY = 0;
     this.random = 0x12345678;
-    this.body = new Resonator(rate, 95, 0.85);
-    this.pipe = new Resonator(rate, 430, 1.15);
+    this.body = new Resonator(rate, p.bodyHz, p.bodyQ);
+    this.pipe = new Resonator(rate, p.pipeHz, p.pipeQ);
     this.dc = Math.exp(-2 * Math.PI * 18 / rate);
     this.rpmSlew = 1 - Math.exp(-1 / (rate * 0.008));
     this.loadSlew = 1 - Math.exp(-1 / (rate * 0.012));
+    this.boostSlew = 1 - Math.exp(-1 / (rate * 0.18));
     this.airCoefficient = 1 - Math.exp(-2 * Math.PI * 1600 / rate);
   }
 
   render(output, rpm = 850, load = 0.035, overrun = 0, bass = 0.7) {
+    const p = this.preset;
     for (let i = 0; i < output.length; i++) {
-      this.rpm += (bounded(param(rpm, i), 650, 7200, 850) - this.rpm) * this.rpmSlew;
+      this.rpm += (bounded(param(rpm, i), 650, p.redline, p.idle) - this.rpm) * this.rpmSlew;
       this.load += (bounded(param(load, i), 0, 1, 0) - this.load) * this.loadSlew;
       this.overrun += (bounded(param(overrun, i), 0, 1, 0) - this.overrun) * this.loadSlew;
       this.bass += (bounded(param(bass, i), 0, 1, 0.7) - this.bass) * this.loadSlew;
       this.random ^= this.random << 13; this.random ^= this.random >>> 17; this.random ^= this.random << 5;
       const noise = this.random / 2147483648;
-      this.phase += this.rpm / (15 * this.rate);
+      // Each cylinder fires once per 720° (120 / RPM seconds).
+      this.phase += this.rpm * p.cylinders / (120 * this.rate);
       if (this.phase >= 1) {
         this.phase -= 1;
-        const strength = STRENGTH[this.cylinder] * (0.65 + 0.5 * this.load)
+        const strength = p.strength[this.cylinder] * (0.65 + 0.5 * this.load)
           * (1 + noise * (0.055 - this.load * 0.025));
-        if (BANK[this.cylinder] === 0) this.left += strength;
+        if (p.banks[this.cylinder] === 0) this.left += strength;
         else this.right += strength;
-        this.cylinder = (this.cylinder + 1) & 7;
+        this.cylinder = (this.cylinder + 1) % p.cylinders;
       }
-      const decay = Math.exp(-1 / (this.rate * (0.0028 + this.load * 0.0012)));
+      const decay = Math.exp(-1 / (this.rate * (p.decay + this.load * p.decayLoad)));
       this.left *= decay;
       this.right *= decay * 0.9996;
       const combustion = this.left * 0.68 + this.right * 0.63;
-      const cutoff = 240 + this.rpm * 0.045 + this.load * 1100;
+      const cutoff = p.cutoff + this.rpm * p.cutoffRpm + this.load * p.cutoffLoad;
       this.exhaust += (combustion - this.exhaust) * (1 - Math.exp(-2 * Math.PI * cutoff / this.rate));
       const body = this.body.process(this.exhaust), pipe = this.pipe.process(combustion);
       this.air += (noise - this.air) * this.airCoefficient;
-      const intake = (noise - this.air) * (0.004 + this.load ** 2 * 0.045) * (0.5 + combustion * 0.5);
+      const intake = (noise - this.air) * (0.004 + this.load ** 2 * p.intake) * (0.5 + combustion * 0.5);
+      let turbo = 0, mechanical = 0;
+      if (p.turbo) {
+        this.boost += (this.load - this.boost) * this.boostSlew;
+        this.turboPhase = (this.turboPhase + (750 + this.boost * 2200 + this.rpm * 0.08) / this.rate) % 1;
+        turbo = p.turbo * (Math.sin(this.turboPhase * 2 * Math.PI) * this.boost * this.load
+          + this.air * Math.max(0, this.boost - this.load) * 3);
+      }
+      if (p.mechanical) {
+        this.mechanicalPhase = (this.mechanicalPhase + this.rpm * (p.cylinders / 2 + 2) / (60 * this.rate)) % 1;
+        mechanical = p.mechanical * this.load * Math.sin(this.mechanicalPhase * 2 * Math.PI);
+      }
       // Restrained overrun texture follows negative acceleration, never random loud bangs.
       const overrunTexture = this.air * this.overrun * (0.012 + combustion * 0.035);
       const x = this.exhaust * (0.55 + this.load * 0.42)
-        + body * (0.12 + this.bass * 1.8) + pipe * (0.12 + this.load * 0.22)
-        + intake + overrunTexture;
+        + body * (0.12 + this.bass * p.bodyGain) + pipe * (0.12 + this.load * p.pipeGain)
+        + intake + overrunTexture + turbo + mechanical;
       const dcFree = x - this.lastX + this.dc * this.lastY;
       this.lastX = x; this.lastY = dcFree;
-      output[i] = Math.tanh(dcFree * 1.5) * 0.9;
+      output[i] = Math.tanh(dcFree * 1.5 * p.level) * 0.9;
     }
   }
 }

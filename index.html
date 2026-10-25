@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0c121b">
-  <title>TeslaSound · V8 Engine</title>
+  <title>TeslaSound · Motor-Sounds</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <main>
-  <header><small class="eyebrow">TESLA BROWSER · V8 SOUND ENGINE</small>
+  <header><small class="eyebrow">TESLA & HANDY · MOTOR SOUND ENGINE</small>
     <h1>TeslaSound<span class="accent">.</span></h1>
-    <p>V8-Grollen, das auf deine Fahrt reagiert. Bitte nur im Stand bedienen.</p>
+    <p>Vier Motorcharaktere, die auf deine Fahrt reagieren. Bitte nur im Stand bedienen.</p>
   </header>
   <section class="card" aria-labelledby="outputTitle">
     <h2 id="outputTitle">Gerät & Ausgabe</h2>
@@ -49,11 +49,15 @@
   </section>
   <section class="card" aria-labelledby="soundTitle">
     <h2 id="soundTitle">Dein Sound</h2>
+    <label for="enginePreset">Motor-Preset</label>
+    <select id="enginePreset" aria-describedby="presetDescription presetRange"></select>
+    <p id="presetDescription" class="hint"></p>
+    <small id="presetRange"></small>
     <label for="volume">Lautstärke <span id="volLabel">35%</span></label>
     <input id="volume" type="range" min="0" max="100" value="35">
     <label for="bass">Auspuffbass <span id="bassLabel">70%</span></label>
     <input id="bass" type="range" min="0" max="100" value="70">
-    <p class="hint">Zwei pulsierende Zylinderbänke, Auspuffresonanzen und lastabhängiges Ansauggeräusch. Bei Verzögerung wird der Klang zurückgenommen.</p>
+    <p class="hint">Eigene Zündcharakteristik, Auspuffresonanzen und Ansauggeräusche für jeden Motor. Die Auswahl wird gespeichert und beim Wechsel weich überblendet.</p>
   </section>
   <section class="card" aria-labelledby="testTitle">
     <div class="section-row"><h2 id="testTitle">Probefahrt im Stand</h2><button id="test" class="secondary" aria-pressed="false">Testmodus aktivieren</button></div>

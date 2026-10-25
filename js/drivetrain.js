@@ -1,13 +1,16 @@
 import { clamp } from './driving-model.js';
+import { getPreset } from './engine-presets.js';
 
 const RATIOS = [3.4, 2.3, 1.62, 1.2, 0.96, 0.78];
 const UPSHIFT = [10, 18, 28, 40, 55]; // m/s; downshifts have a separate boundary.
 
 export class Drivetrain {
-  constructor() { this.reset(); }
+  constructor(presetId) { this.setPreset(presetId); this.reset(); }
+
+  setPreset(presetId) { this.preset = getPreset(presetId); }
 
   reset() {
-    this.rpm = 850;
+    this.rpm = this.preset.idle;
     this.load = 0;
     this.gear = 1;
     this.lastTime = null;
@@ -40,8 +43,9 @@ export class Drivetrain {
       : clamp(0.13 + speed * 0.0015, 0.13, 0.25);
     if (shifting) load *= 0.25;
     this.load += (load - this.load) * (1 - Math.exp(-dt / 0.035));
-    const desired = !valid || speed < 0.45 ? 850
-      : clamp(850 + speed * 3.6 * RATIOS[this.gear - 1] * 30 + this.load * 450, 850, 6800);
+    const { idle, redline, rpmScale } = this.preset;
+    const desired = !valid || speed < 0.45 ? idle
+      : clamp(idle + speed * 3.6 * RATIOS[this.gear - 1] * 30 * rpmScale + this.load * 450, idle, redline);
     this.rpm += (desired - this.rpm) * (1 - Math.exp(-dt / (shifting ? 0.07 : 0.055)));
     const overrun = valid && decelerating && speed > 2 ? clamp(-driving.acceleration / 3, 0, 1) : 0;
     this.overrun += (overrun - this.overrun) * (1 - Math.exp(-dt / 0.05));

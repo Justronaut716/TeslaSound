@@ -1,6 +1,26 @@
 # TeslaSound
 
-Lokaler V8-Simulator für den Tesla-Browser oder das Handy mit Bluetooth-Ausgabe auf GitHub Pages. Keine Installation, kein Backend, keine Tesla-Zugangsdaten und keine Übertragung der GPS-Positionen.
+## Vier Motor-Presets
+
+Unter **Dein Sound → Motor-Preset** stehen vier eigenständige Syntheseprofile zur Auswahl:
+
+| Preset | Charakter | Drehzahlbereich |
+| --- | --- | --- |
+| V8 Muscle | Tiefes, ungleichmäßiges Grollen und kräftiger Auspuffbass | 850–6800 RPM |
+| Reihensechser Turbo | Weicher Sechszylinderlauf, Turbopfeifen und dezentes Ablasszischen | 780–7200 RPM |
+| V10 Supercar | Heller, metallischer Hochdrehzahlklang | 1000–9000 RPM |
+| V12 GT | Dichter, gleichmäßiger und sonorer Zwölfzylinderklang | 900–8200 RPM |
+
+Die Presets verändern Zylinderzahl/Zündfrequenz, Impulscharakter, Resonanzen,
+Ansauggeräusch und die virtuelle Drehzahlabstimmung. Sie funktionieren im
+Tesla-Browser und im Handy-/Bluetooth-Modus sowie im nativen Audio-Rückfall.
+Die Auswahl bleibt lokal gespeichert. Umschalten überblendet den Klang kurz,
+ohne AudioContext, Geschwindigkeit, GPS-Empfang oder Gang zurückzusetzen.
+Bei schnellen Änderungen gewinnt die letzte Auswahl; die Anzahl paralleler
+Synthesizer bleibt begrenzt. Das sind fiktive synthetische Motorcharaktere,
+keine Aufnahmen bestimmter Automodelle. Bitte nur im Stand auswählen.
+
+Lokaler Motorsound-Simulator für den Tesla-Browser oder das Handy mit Bluetooth-Ausgabe auf GitHub Pages. Keine Installation, kein Backend, keine Tesla-Zugangsdaten und keine Übertragung der GPS-Positionen.
 
 ## Benutzen
 
@@ -77,3 +97,5 @@ Chromium-Tests sind keine Messung im Tesla. Vor der Verwendung im Tesla im Stand
 | `js/audio-engine.js` | Audiograph, nativer Rückfall, Diagnose, Lebenszyklus |
 | `js/app.js` | GPS, Testmodus, Regeltakt und Bedienoberfläche |
 | `js/phone-playback.js` | Handy-Audiokategorie und optionaler Bildschirmschutz |
+| `js/engine-presets.js` | Gemeinsame Klang-, Zylinder- und Drehzahleinstellungen |
+| `js/engine-synth.js` | Begrenzte Überblendung zwischen Motorcharakteren |

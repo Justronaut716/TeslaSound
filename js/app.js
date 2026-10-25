@@ -2,6 +2,7 @@ import { DrivingModel, speedFromPosition, clamp } from './driving-model.js';
 import { Drivetrain } from './drivetrain.js';
 import { AudioEngine } from './audio-engine.js';
 import { PhonePlaybackSession } from './phone-playback.js';
+import { ENGINE_PRESETS, getPreset } from './engine-presets.js';
 
 const el = id => document.getElementById(id);
 const model = new DrivingModel(), drivetrain = new Drivetrain();
@@ -11,6 +12,23 @@ let operation = 0, watch = null, gpsGeneration = 0, positions = [], timer = null
 let simulationSpeed = 0, lastTick = null, latestDriving = model.snapshot(0);
 let latestEngine = { rpm: 850, gear: 1, load: 0.035, overrun: 0 };
 let lastRender = 0;
+let preset = getPreset();
+try { preset = getPreset(localStorage.getItem('teslasound-engine-preset')); } catch { /* Optional preference. */ }
+for (const option of ENGINE_PRESETS) el('enginePreset').add(new Option(option.name, option.id));
+el('enginePreset').value = preset.id;
+function showPreset() {
+  el('presetDescription').textContent = preset.description;
+  el('presetRange').textContent = `${preset.cylinders} Zylinder · ${preset.idle}–${preset.redline} RPM`;
+}
+drivetrain.setPreset(preset.id); drivetrain.reset(); showPreset();
+latestEngine.rpm = preset.idle;
+el('enginePreset').onchange = () => {
+  preset = getPreset(el('enginePreset').value);
+  drivetrain.setPreset(preset.id); engine?.setPreset(preset.id);
+  try { localStorage.setItem('teslasound-engine-preset', preset.id); } catch { /* Best-effort preference only. */ }
+  if (phase === 'stopped') { drivetrain.reset(); latestEngine.rpm = preset.idle; }
+  showPreset(); tick();
+};
 let endSpeakerTest = null, speakerToken = 0;
 
 function stopSpeakerTest() {
@@ -39,7 +57,7 @@ function resetDriving() {
   model.reset(); drivetrain.reset(); positions = [];
   simulationSpeed = 0; lastTick = null; hold = false;
   latestDriving = model.snapshot(performance.now());
-  latestEngine = { rpm: 850, gear: 1, load: 0.035, overrun: 0 };
+  latestEngine = { rpm: preset.idle, gear: 1, load: 0.035, overrun: 0 };
   el('hold').setAttribute('aria-pressed', 'false');
 }
 
@@ -153,7 +171,7 @@ async function start() {
   phase = 'starting'; el('start').disabled = true; el('stop').disabled = false;
   el('deviceMode').disabled = true;
   el('status').textContent = 'Sound-Engine wird gestartet …';
-  const instance = new AudioEngine(); engine = instance;
+  const instance = new AudioEngine(preset.id); engine = instance;
   try {
     if (deviceMode === 'phone') void phoneSession.activate();
     const ready = await instance.start();
