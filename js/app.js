@@ -1,4 +1,5 @@
-import { DrivingModel, speedFromPosition, clamp } from './driving-model.js';
+import { DrivingModel, speedFromPosition, clamp } from './driving-model.js?v=20261025-quality';
+import { GPS_LIMITS, readGPSPosition } from './gps-input.js';
 import { Drivetrain } from './drivetrain.js';
 import { AudioEngine } from './audio-engine.js';
 import { PhonePlaybackSession } from './phone-playback.js';
@@ -71,6 +72,7 @@ function stopGPS() {
   if (watch !== null) { navigator.geolocation.clearWatch(watch); watch = null; }
   positions = [];
   gpsReceived = 0; gpsAccepted = 0;
+  el('gpsRaw').textContent = '—';
 }
 
 function startGPS() {
@@ -84,33 +86,42 @@ function startGPS() {
       if (generation !== gpsGeneration || (phase !== 'running' && phase !== 'starting') || test) return;
       gpsReceived++;
       const now = performance.now();
-      // Convert epoch acquisition time to monotonic time, preserving GPS age.
-      const timestamp = now - (Date.now() - position.timestamp);
-      const c = position.coords;
-      if (!Number.isFinite(timestamp) || now - timestamp > 2000 || timestamp > now + 100
-        || !Number.isFinite(c.accuracy) || c.accuracy < 0 || c.accuracy > 80) {
-        reportGPS('GPS: Messwert verworfen (veraltet oder zu ungenau).'); return;
+      const input = readGPSPosition(position, now);
+      el('gpsRaw').textContent = input.diagnostic;
+      if (input.error) { reportGPS(input.error); return; }
+      const current = input.position;
+      let fix = input.fix, windowMs = 0;
+      if (current) {
+        const lastPosition = positions[positions.length - 1];
+        if (lastPosition && Boolean(lastPosition.timeEstimated) !== Boolean(current.timeEstimated)) positions = [];
+        // An out-of-order fix must not erase newer history. The loop below
+        // skips negative/short intervals and only newer positions are appended.
+        positions = positions.filter(p => current.timestamp - p.timestamp <= GPS_LIMITS.positionWindowMs);
+        if (!fix) {
+          // Prefer the shortest resolvable window; coarse positions may need
+          // more travel, while precise GPS keeps its responsive short window.
+          for (let i = positions.length - 1; i >= 0; i--) {
+            const dt = current.timestamp - positions[i].timestamp;
+            if (dt < 800) continue;
+            const speed = speedFromPosition(positions[i], current);
+            if (speed !== null) {
+              fix = { ...input.base, speed, source: 'position' }; windowMs = dt; break;
+            }
+          }
+        }
+        if (!positions.length || current.timestamp > positions[positions.length - 1].timestamp) positions.push(current);
+        if (positions.length > 128) positions.shift();
       }
-      const current = { latitude: c.latitude, longitude: c.longitude, accuracy: c.accuracy, timestamp };
-      let speed = c.speed, source = 'speed';
-      if (speed === null || !Number.isFinite(speed) || speed < 0) {
-        source = 'position';
-        positions = positions.filter(p => timestamp - p.timestamp <= 3000);
-        const previous = positions.find(p => timestamp - p.timestamp >= 800);
-        speed = speedFromPosition(previous, current);
-      }
-      if (!positions.length || timestamp > positions[positions.length - 1].timestamp) positions.push(current);
-      if (positions.length > 32) positions.shift();
-      if (speed === null || !model.pushGPS({ speed, timestamp, accuracy: c.accuracy, source }, now)) {
-        reportGPS(speed === null
-          ? 'GPS aktiv · noch keine verlässliche Geschwindigkeit. Warte auf genaue Positionsdaten.'
-          : 'GPS: Messwert verworfen (Reihenfolge, Genauigkeit oder Geschwindigkeitssprung).');
+      if (!fix || !model.pushGPS(fix, now)) {
+        reportGPS(!fix
+          ? `GPS aktiv · noch keine verlässliche Geschwindigkeit. Bewegung muss die Positionsunsicherheit übersteigen. ${input.diagnostic}`
+          : `GPS: Messwert verworfen (doppelt, Reihenfolge oder Geschwindigkeitssprung). ${input.diagnostic}`);
         return;
       }
       gpsAccepted++;
-      reportGPS(source === 'speed'
-        ? `GPS-Geschwindigkeit aktiv · Positionsgenauigkeit ±${Math.round(c.accuracy)} m`
-        : `Geschwindigkeit aus Positionen geschätzt · ungenauer · ±${Math.round(c.accuracy)} m`);
+      reportGPS(fix.source === 'speed'
+        ? `GPS-Geschwindigkeit aktiv · ${input.diagnostic}`
+        : `Geschwindigkeit aus Positionen geschätzt (über ${(windowMs / 1000).toFixed(1)} s) · ${input.diagnostic}`);
       tick(now); // Sensor-to-audio path bypasses the screen and the timer.
     }, error => {
       if (generation !== gpsGeneration || test || (phase !== 'running' && phase !== 'starting')) return;
@@ -163,7 +174,9 @@ function render(now) {
     el('audioBuffer').textContent = diag ? latency(diag.baseLatency) : '—';
     el('audioOutput').textContent = diag ? latency(diag.outputLatency) : '—';
     el('gpsInterval').textContent = test ? 'Testmodus' : latestDriving.interval === null ? '—' : `${Math.round(latestDriving.interval)} ms`;
-    el('gpsAge').textContent = test ? 'Testmodus' : Number.isFinite(latestDriving.age) ? `${Math.round(latestDriving.age)} ms${latestDriving.stale ? ' · veraltet' : ''}` : '—';
+    el('gpsAge').textContent = test ? 'Testmodus' : latestDriving.timeEstimated
+      ? `Messzeit unbekannt · Empfang vor ${Math.round(latestDriving.receptionAge)} ms${latestDriving.stale ? ' · veraltet' : ''}`
+      : Number.isFinite(latestDriving.age) ? `${Math.round(latestDriving.age)} ms${latestDriving.stale ? ' · veraltet' : ''}` : '—';
     el('gpsReceived').textContent = `${gpsReceived} / ${gpsAccepted}`;
     el('gpsRetry').disabled = test || (phase !== 'running' && phase !== 'starting');
   }

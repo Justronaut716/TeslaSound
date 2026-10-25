@@ -38,7 +38,8 @@ Freigabe in den Browser-Einstellungen geändert werden.
 brauchbaren Messwerte. Bei **0 / 0** sind noch keine Standortdaten vom Browser
 eingetroffen. Steigt nur die erste Zahl, meldet der GPS-Status den Grund für
 fehlende Verarbeitung (beispielsweise ungenaue/alte Daten oder noch fehlende
-Geschwindigkeit). Im Testmodus ist GPS ausgeschaltet. Standortdaten bleiben lokal.
+Geschwindigkeit). **Letzte GPS-Lieferung** zeigt Alter und Positionsgenauigkeit
+auch für verworfene Daten. Im Testmodus ist GPS ausgeschaltet. Standortdaten bleiben lokal.
 
 Die Verarbeitung verwendet kein `Array.prototype.at`, damit weitere Messwerte
 auch auf älteren eingebetteten Chromium-Versionen verarbeitet werden können.
@@ -61,8 +62,9 @@ Während der Wiedergabe fordert der Handy-Modus optional eine **Screen Wake Lock
 - Die Motorlast reagiert auf neue Beschleunigungswerte, bevor die Fahrzustandsanzeige ihre 120-ms-Bestätigung beendet. Audioparameter werden ohne wachsende Scheduling-Warteschlange aktualisiert. Kurze Rampen vermeiden Klicks.
 - Geschwindigkeit und Beschleunigung werden anhand der **Messzeitstempel** berechnet. Eine Vorhersage von höchstens **350 ms** überbrückt einen Teil des Abstands zwischen Messungen. Es gibt keine zusätzliche Geschwindigkeitsglättung pro Bildschirmframe.
 - Fehlende GPS-Geschwindigkeit kann durch ausreichend genaue Positionsänderungen ersetzt werden. Diese Schätzung ist träger und ungenauer als eine vom Browser gemeldete Geschwindigkeit und wird als solche angezeigt.
-- Negative/ungültige Werte, alte oder falsch sortierte Messungen, Genauigkeit schlechter als 80 m und unplausible Sprünge werden verworfen. Positionsberechnung verlangt mindestens 50 m Genauigkeit und behandelt Bewegungen innerhalb des Unsicherheitsradius konservativ.
-- Nach 1,8–3 s ohne aktuelle Daten (abhängig vom Messintervall) geht die Engine in den Leerlauf. Die Beschleunigungsschätzung klingt schon vorher ab. Hysterese verhindert ständige Wechsel bei GPS-Rauschen und an Ganggrenzen.
+- Eine vom Browser gelieferte Geschwindigkeit wird getrennt von der horizontalen **Positionsgenauigkeit** geprüft: Eine grobe Position allein verwirft die Geschwindigkeit nicht mehr. Negative/ungültige Geschwindigkeiten, mehr als 5 s alte, falsch sortierte Messungen und unplausible Sprünge werden weiter verworfen; der Status nennt den genauen Grund und die Werte.
+- Fehlt eine Geschwindigkeit, darf die Positionsberechnung bis 250 m Unsicherheit arbeiten. Sie verwendet das kürzeste auflösbare Fenster von höchstens 10 s. Eine Bewegung muss die gemeinsame Positionsunsicherheit übersteigen; bei groben Positionen kann das länger dauern. Bleibt sie darunter, wird keine Beschleunigung erfunden.
+- Nach 1,8–3 s ohne neue verwertbare Daten (abhängig vom Messintervall) geht die Engine in den Leerlauf. Eine schon bei Ankunft bestehende Verzögerung bleibt als tatsächliches Messwertalter sichtbar und wird nicht nochmals als Empfangsausfall gewertet. Fehlende/ungültige Zeitstempel werden ausdrücklich als **Messzeit unbekannt** markiert; dann wird die Empfangszeit genutzt und die Vorhersage deaktiviert. Zeitquellen werden nicht miteinander differenziert. Hysterese verhindert ständige Wechsel bei GPS-Rauschen und an Ganggrenzen.
 
 **GPS bleibt die Latenzgrenze.** Bei beispielsweise einem GPS-Fix pro Sekunde kann eine gerade beginnende Beschleunigung erst beim nächsten Fix beobachtet werden. Eine Website kann weder die GPS-Rate erzwingen noch Pedalbewegungen vorhersagen. Niedrige Audio-Latenz ist keine Garantie für eine ebenso niedrige Verzögerung vom Pedal bis zum Ton. Die Diagnose zeigt deshalb GPS-Intervall, Datenalter, `baseLatency` und `outputLatency` getrennt. Nicht vom Browser gelieferte Latenzwerte bleiben als „Nicht gemeldet“ gekennzeichnet.
 
@@ -109,6 +111,7 @@ Chromium-Tests sind keine Messung im Tesla. Vor der Verwendung im Tesla im Stand
 | Datei | Aufgabe |
 | --- | --- |
 | `js/driving-model.js` | GPS-Prüfung, Geschwindigkeitsschätzung, Fahrzustände |
+| `js/gps-input.js` | GPS-Eingabe, getrennte Qualitätsprüfung und Rohdaten-Diagnose |
 | `js/drivetrain.js` | Last, Drehzahl, virtuelle Schaltvorgänge |
 | `js/v8-synth.js` | Deterministischer V8-Signalprozessor |
 | `js/engine-worklet.js` | Audio-Thread und AudioParams |

@@ -51,8 +51,8 @@ test('predicts only briefly and releases load when GPS stops', () => {
 test('rejects delayed, reordered, nonfinite, negative and implausible GPS fixes', () => {
   const m = new DrivingModel();
   assert.equal(m.pushGPS(fix(10, 1000), 1000), true);
-  for (const f of [fix(10, 900), fix(10, 1100), fix(NaN, 2000), fix(-1, 2000), fix(120, 2000), fix(60, 2000), fix(10, 2000, {accuracy: 200})]) {
-    assert.equal(m.pushGPS(f, f.timestamp === 1100 ? 5000 : 2000), false);
+  for (const f of [fix(10, 900), fix(10, 1100), fix(NaN, 2000), fix(-1, 2000), fix(120, 2000), fix(60, 2000), fix(10, 2000, {accuracy: -1})]) {
+    assert.equal(m.pushGPS(f, f.timestamp === 1100 ? 8000 : 2000), false);
   }
   assert.equal(m.snapshot(2000).age, 1000);
   assert.equal(m.pushGPS(fix(11, 2100), 2200), true);
