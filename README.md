@@ -26,6 +26,24 @@ Lokaler Motorsound-Simulator für den Tesla-Browser oder das Handy mit Bluetooth
 
 Die HTTPS-Adresse von GitHub Pages öffnen, im Stand **Motor starten** antippen und Standortzugriff erlauben. Die Lautstärke zunächst niedrig einstellen. Für eine Probefahrt ohne Bewegung den **Testmodus** aktivieren: Gas, Bremse und **Tempo halten** demonstrieren die verschiedenen Fahrzustände. Der Testmodus deaktiviert die GPS-Abfrage vollständig; ein Moduswechsel setzt alte Messwerte zurück.
 
+### GPS-Verbindung prüfen
+
+GPS wird direkt beim Start angefragt, während Audio noch laden oder auf Freigabe
+warten kann. Der GPS-Status steht zusätzlich direkt bei den Motorsteuerungen.
+**GPS neu verbinden** ersetzt die Standortabfrage und verwirft alte Messwerte,
+ohne die Audio-Engine neu zu starten. Bei verweigertem Standortzugriff muss die
+Freigabe in den Browser-Einstellungen geändert werden.
+
+**GPS empfangen / verarbeitet** zählt pro Verbindung die eingegangenen und
+brauchbaren Messwerte. Bei **0 / 0** sind noch keine Standortdaten vom Browser
+eingetroffen. Steigt nur die erste Zahl, meldet der GPS-Status den Grund für
+fehlende Verarbeitung (beispielsweise ungenaue/alte Daten oder noch fehlende
+Geschwindigkeit). Im Testmodus ist GPS ausgeschaltet. Standortdaten bleiben lokal.
+
+Die Verarbeitung verwendet kein `Array.prototype.at`, damit weitere Messwerte
+auch auf älteren eingebetteten Chromium-Versionen verarbeitet werden können.
+Der GPS-Browsertest schaltet diese API gezielt ab und prüft mehrere Messungen.
+
 ## Was die Reaktion beschleunigt
 
 ### Handy → Bluetooth im Tesla

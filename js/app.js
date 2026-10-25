@@ -12,6 +12,11 @@ let operation = 0, watch = null, gpsGeneration = 0, positions = [], timer = null
 let simulationSpeed = 0, lastTick = null, latestDriving = model.snapshot(0);
 let latestEngine = { rpm: 850, gear: 1, load: 0.035, overrun: 0 };
 let lastRender = 0;
+let gpsReceived = 0, gpsAccepted = 0;
+function reportGPS(text) {
+  el('gps').textContent = text;
+  el('gpsSummary').textContent = text;
+}
 let preset = getPreset();
 try { preset = getPreset(localStorage.getItem('teslasound-engine-preset')); } catch { /* Optional preference. */ }
 for (const option of ENGINE_PRESETS) el('enginePreset').add(new Option(option.name, option.id));
@@ -65,24 +70,26 @@ function stopGPS() {
   gpsGeneration++;
   if (watch !== null) { navigator.geolocation.clearWatch(watch); watch = null; }
   positions = [];
+  gpsReceived = 0; gpsAccepted = 0;
 }
 
 function startGPS() {
   stopGPS();
-  if (!navigator.geolocation) { el('gps').textContent = 'GPS wird von diesem Browser nicht unterstützt. Der Testmodus ist verfügbar.'; return; }
-  if (!window.isSecureContext) { el('gps').textContent = 'GPS benötigt HTTPS. Bitte die GitHub-Pages-Adresse mit https:// öffnen.'; return; }
-  el('gps').textContent = 'GPS wird gesucht. Standortzugriff im Browser erlauben.';
+  if (!navigator.geolocation) { reportGPS('GPS wird von diesem Browser nicht unterstützt. Der Testmodus ist verfügbar.'); return; }
+  if (!window.isSecureContext) { reportGPS('GPS benötigt HTTPS. Bitte die GitHub-Pages-Adresse mit https:// öffnen.'); return; }
+  reportGPS('GPS wird gesucht. Standortzugriff im Browser erlauben.');
   const generation = gpsGeneration;
   try {
     watch = navigator.geolocation.watchPosition(position => {
-      if (generation !== gpsGeneration || phase !== 'running' || test) return;
+      if (generation !== gpsGeneration || (phase !== 'running' && phase !== 'starting') || test) return;
+      gpsReceived++;
       const now = performance.now();
       // Convert epoch acquisition time to monotonic time, preserving GPS age.
       const timestamp = now - (Date.now() - position.timestamp);
       const c = position.coords;
       if (!Number.isFinite(timestamp) || now - timestamp > 2000 || timestamp > now + 100
         || !Number.isFinite(c.accuracy) || c.accuracy < 0 || c.accuracy > 80) {
-        el('gps').textContent = 'GPS: Messwert verworfen (veraltet oder zu ungenau).'; return;
+        reportGPS('GPS: Messwert verworfen (veraltet oder zu ungenau).'); return;
       }
       const current = { latitude: c.latitude, longitude: c.longitude, accuracy: c.accuracy, timestamp };
       let speed = c.speed, source = 'speed';
@@ -92,31 +99,32 @@ function startGPS() {
         const previous = positions.find(p => timestamp - p.timestamp >= 800);
         speed = speedFromPosition(previous, current);
       }
-      if (!positions.length || timestamp > positions.at(-1).timestamp) positions.push(current);
+      if (!positions.length || timestamp > positions[positions.length - 1].timestamp) positions.push(current);
       if (positions.length > 32) positions.shift();
       if (speed === null || !model.pushGPS({ speed, timestamp, accuracy: c.accuracy, source }, now)) {
-        el('gps').textContent = speed === null
+        reportGPS(speed === null
           ? 'GPS aktiv · noch keine verlässliche Geschwindigkeit. Warte auf genaue Positionsdaten.'
-          : 'GPS: Messwert verworfen (Reihenfolge, Genauigkeit oder Geschwindigkeitssprung).';
+          : 'GPS: Messwert verworfen (Reihenfolge, Genauigkeit oder Geschwindigkeitssprung).');
         return;
       }
-      el('gps').textContent = source === 'speed'
+      gpsAccepted++;
+      reportGPS(source === 'speed'
         ? `GPS-Geschwindigkeit aktiv · Positionsgenauigkeit ±${Math.round(c.accuracy)} m`
-        : `Geschwindigkeit aus Positionen geschätzt · ungenauer · ±${Math.round(c.accuracy)} m`;
+        : `Geschwindigkeit aus Positionen geschätzt · ungenauer · ±${Math.round(c.accuracy)} m`);
       tick(now); // Sensor-to-audio path bypasses the screen and the timer.
     }, error => {
-      if (generation !== gpsGeneration || test || phase !== 'running') return;
+      if (generation !== gpsGeneration || test || (phase !== 'running' && phase !== 'starting')) return;
       if (error.code === 1) {
         stopGPS(); model.reset();
-        el('gps').textContent = 'Bitte den Standortzugriff für diese Website im Browser freigeben. Alternativ den Testmodus nutzen.';
+        reportGPS('Bitte den Standortzugriff für diese Website im Browser freigeben. Alternativ den Testmodus nutzen.');
         tick(performance.now());
       } else {
-        el('gps').textContent = error.code === 3
-          ? 'GPS wartet auf ein Signal. Bei alten Daten geht die Engine in den Leerlauf.'
-          : 'GPS vorübergehend nicht verfügbar. Standortempfang prüfen; die Suche läuft weiter.';
+        reportGPS(error.code === 3
+          ? 'GPS wartet auf ein Signal. Noch keine neuen Standortdaten; bei Bedarf „GPS neu verbinden“ antippen.'
+          : 'GPS vorübergehend nicht verfügbar. Standortempfang prüfen; die Suche läuft weiter.');
       }
     }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
-  } catch (error) { el('gps').textContent = `GPS konnte nicht gestartet werden: ${error.message}`; }
+  } catch (error) { reportGPS(`GPS konnte nicht gestartet werden: ${error.message}`); }
 }
 
 function tick(now = performance.now()) {
@@ -156,6 +164,8 @@ function render(now) {
     el('audioOutput').textContent = diag ? latency(diag.outputLatency) : '—';
     el('gpsInterval').textContent = test ? 'Testmodus' : latestDriving.interval === null ? '—' : `${Math.round(latestDriving.interval)} ms`;
     el('gpsAge').textContent = test ? 'Testmodus' : Number.isFinite(latestDriving.age) ? `${Math.round(latestDriving.age)} ms${latestDriving.stale ? ' · veraltet' : ''}` : '—';
+    el('gpsReceived').textContent = `${gpsReceived} / ${gpsAccepted}`;
+    el('gpsRetry').disabled = test || (phase !== 'running' && phase !== 'starting');
   }
   requestAnimationFrame(render);
 }
@@ -172,11 +182,14 @@ async function start() {
   el('deviceMode').disabled = true;
   el('status').textContent = 'Sound-Engine wird gestartet …';
   const instance = new AudioEngine(preset.id); engine = instance;
+  resetDriving();
+  if (!test) startGPS();
+  else reportGPS('Testmodus · GPS ist ausgeschaltet.');
   try {
     if (deviceMode === 'phone') void phoneSession.activate();
     const ready = await instance.start();
     if (token !== operation || !ready) { await instance.stop(); return; }
-    phase = 'running'; resetDriving();
+    phase = 'running';
     el('deviceMode').disabled = false;
     el('status').textContent = 'Motor läuft · ' + (test ? 'Testmodus' : 'GPS-Modus');
     instance.ctx.onstatechange = () => {
@@ -186,12 +199,12 @@ async function start() {
       el('start').textContent = paused ? '▶ Audio fortsetzen' : '▶ Motor starten';
       el('status').textContent = paused ? 'Audio pausiert. Zum Fortsetzen tippen.' : 'Motor läuft · ' + (test ? 'Testmodus' : 'GPS-Modus');
     };
-    if (!test) startGPS();
-    else el('gps').textContent = 'Testmodus · GPS ist ausgeschaltet.';
     tick(); timer = setInterval(tick, 20);
   } catch (error) {
     await instance.stop();
     if (token !== operation) return;
+    stopGPS(); model.reset();
+    reportGPS('GPS gestoppt, weil der Audiostart fehlgeschlagen ist. Motor erneut starten.');
     engine = null; phase = 'stopped'; el('start').disabled = false; el('stop').disabled = true;
     el('deviceMode').disabled = false; void phoneSession.deactivate();
     el('status').textContent = `Audiofehler: ${error.message}`;
@@ -212,12 +225,16 @@ async function stop() {
     el('start').disabled = false; el('start').textContent = '▶ Motor starten';
     el('deviceMode').disabled = false;
     el('status').textContent = 'Motor gestoppt';
-    el('gps').textContent = test ? 'Testmodus · GPS ist ausgeschaltet.' : 'GPS gestoppt.';
+    reportGPS(test ? 'Testmodus · GPS ist ausgeschaltet.' : 'GPS gestoppt.');
   }
 }
 
 el('start').onclick = start;
 el('stop').onclick = stop;
+el('gpsRetry').onclick = () => {
+  if (test || (phase !== 'running' && phase !== 'starting')) return;
+  model.reset(); startGPS(); tick();
+};
 el('test').onclick = () => {
   test = !test; stopGPS(); resetDriving();
   el('test').textContent = test ? 'Testmodus deaktivieren' : 'Testmodus aktivieren';
@@ -226,9 +243,9 @@ el('test').onclick = () => {
   for (const id of ['pedal', 'brake', 'hold']) el(id).disabled = !test;
   el('pedal').value = el('brake').value = 0;
   el('gasLabel').textContent = el('brakeLabel').textContent = '0%';
-  if (phase === 'running') {
-    if (!test) startGPS(); else el('gps').textContent = 'Testmodus · GPS ist ausgeschaltet.';
-    el('status').textContent = 'Motor läuft · ' + (test ? 'Testmodus' : 'GPS-Modus');
+  if (phase === 'running' || phase === 'starting') {
+    if (!test) startGPS(); else reportGPS('Testmodus · GPS ist ausgeschaltet.');
+    if (phase === 'running') el('status').textContent = 'Motor läuft · ' + (test ? 'Testmodus' : 'GPS-Modus');
     tick();
   }
 };

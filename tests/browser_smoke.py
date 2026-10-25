@@ -67,6 +67,25 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or shutil.which("chromium"),
                                     headless=True, args=["--no-sandbox", "--autoplay-policy=no-user-gesture-required"])
+        # Some embedded Chromium releases support our audio and module APIs but
+        # predate Array.prototype.at. A second GPS fix must still be processed.
+        compatibility = browser.new_page()
+        compatibility.add_init_script(instrument)
+        compatibility.add_init_script("Object.defineProperty(Array.prototype, 'at', { value: undefined, configurable: true });")
+        compatibility.goto(url)
+        compatibility.click('#start')
+        check(compatibility, "document.querySelector('#status').textContent.includes('Motor läuft')", "GPS starts without Array.at support")
+        compatibility.evaluate("window.__fix(0)")
+        compatibility.wait_for_timeout(1000)
+        compatibility.evaluate("window.__fix(3)")
+        check(compatibility, "Number(document.querySelector('#speed').textContent) >= 8", "successive GPS fixes work on older embedded browser")
+        check(compatibility, "document.querySelector('#gpsReceived').textContent === '2 / 2'", "GPS diagnosis counts received and accepted fixes")
+        compatibility.click('#gpsRetry')
+        check(compatibility, "window.__watches === 2 && window.__clears === 1", "GPS retry replaces the previous watch")
+        check(compatibility, "document.querySelector('#gpsReceived').textContent === '0 / 0'", "GPS retry resets diagnostics")
+        compatibility.click('#stop')
+        check(compatibility, "window.__contexts.every(ctx => ctx.state === 'closed')", "embedded browser GPS/audio stop cleanly")
+        compatibility.close()
         for fallback in (False, True):
             page = browser.new_page(viewport={"width": 1100, "height": 900})
             errors = []
@@ -201,20 +220,32 @@ try:
 
         # Module failure and cancellation during asynchronous startup use actual
         # AudioContexts; only the external module loading boundary is controlled.
-        for mode in ('reject', 'delay'):
+        for mode in ('reject', 'delay', 'gps-delay'):
             page = browser.new_page()
             extra = """
       const nativeWorklet = this.audioWorklet;
       Object.defineProperty(this, 'audioWorklet', { value: {
-        addModule: (...args) => MODE === 'reject' ? Promise.reject(new Error('module unavailable'))
+        addModule: (...args) => MODE === 'gps-delay' ? new Promise(resolve => { window.__releaseWorklet = resolve; }).then(() => nativeWorklet.addModule(...args))
+          : MODE === 'reject' ? Promise.reject(new Error('module unavailable'))
           : new Promise(resolve => setTimeout(resolve, 500)).then(() => nativeWorklet.addModule(...args))
       }});
 """.replace('MODE', json.dumps(mode))
             page.add_init_script(instrument.replace('window.__contexts.push(this);', 'window.__contexts.push(this);' + extra))
             page.goto(url)
-            page.click('#test')
+            if mode != 'gps-delay':
+                page.click('#test')
             page.click('#start')
-            if mode == 'delay':
+            if mode == 'gps-delay':
+                assert page.evaluate('window.__watches === 1'), 'GPS was gated on async audio startup'
+                page.evaluate('window.__fix(0)')
+                check(page, "document.querySelector('#gpsReceived').textContent === '1 / 1'", "GPS receives data while audio is still loading")
+                check(page, "document.querySelector('#gpsSummary').textContent.includes('GPS-Geschwindigkeit aktiv')", "GPS status is visible beside engine controls")
+                page.evaluate('window.__releaseWorklet()')
+                check(page, "document.querySelector('#status').textContent.includes('Motor läuft')", "audio starts after independent GPS")
+                check(page, "document.querySelector('#driveState').textContent.includes('Stand')", "audio startup preserves earlier GPS measurements")
+                page.click('#stop')
+                check(page, "window.__contexts.every(ctx => ctx.state === 'closed') && window.__clears === 1", "GPS acquired during startup closes cleanly")
+            elif mode == 'delay':
                 page.click('#stop')
                 check(page, "window.__contexts.every(ctx => ctx.state === 'closed') && !document.querySelector('#start').disabled", "stop cancels pending Worklet startup")
                 page.wait_for_timeout(700)
