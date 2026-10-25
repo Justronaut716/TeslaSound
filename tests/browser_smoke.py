@@ -67,6 +67,31 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or shutil.which("chromium"),
                                     headless=True, args=["--no-sandbox", "--autoplay-policy=no-user-gesture-required"])
+        # Exact numerical fixture from the Tesla photo: seconds interpreted as
+        # milliseconds previously produced "1752186186.7 s" of bogus age.
+        clock_page = browser.new_page()
+        clock_page.add_init_script(instrument)
+        clock_page.add_init_script('window.__vehicleWall = 1753940126826; Date.now = () => window.__vehicleWall;')
+        clock_page.goto(url)
+        clock_page.click('#start')
+        check(clock_page, "document.querySelector('#status').textContent.includes('Motor läuft')", "Tesla timestamp reproduction starts")
+        clock_page.evaluate('window.__gps({timestamp:1753940126,coords:{speed:12,accuracy:120,latitude:52.52,longitude:13.405}})')
+        check(clock_page, "document.querySelector('#gpsReceived').textContent === '1 / 1' && Number(document.querySelector('#speed').textContent) >= 40", "photographed seconds timestamp supplies live speed")
+        check(clock_page, "document.querySelector('#gpsRaw').textContent.includes('Sekunden normalisiert') && document.querySelector('#gpsRaw').textContent.includes('0.8 s')", "55-year error normalizes to 0.8 seconds")
+        clock_page.click('#gpsRetry')
+        clock_page.evaluate('window.__gps({timestamp:4321,coords:{speed:12,accuracy:5,latitude:52.52,longitude:13.405}})')
+        check(clock_page, "document.querySelector('#gpsReceived').textContent === '1 / 1' && document.querySelector('#gpsRaw').textContent.includes('Zeitbasis unbekannt')", "relative timestamp works with an explicit unknown-age label")
+        clock_page.evaluate('window.__gps({timestamp:4321,coords:{speed:12,accuracy:5,latitude:52.5202,longitude:13.405}})')
+        check(clock_page, "document.querySelector('#gpsReceived').textContent === '2 / 1'", "duplicate relative timestamp is rejected")
+        clock_page.wait_for_timeout(1000)
+        clock_page.evaluate('window.__gps({timestamp:4322,coords:{speed:12,accuracy:5,latitude:52.5202,longitude:13.405}})')
+        check(clock_page, "document.querySelector('#gpsReceived').textContent === '3 / 2'", "advancing relative timestamp continues tracking")
+        clock_page.click('#gpsRetry')
+        clock_page.evaluate('window.__gps({timestamp:1753940114,coords:{speed:12,accuracy:5,latitude:52.52,longitude:13.405}})')
+        check(clock_page, "document.querySelector('#gpsSummary').textContent.includes('zu alt') && document.querySelector('#gpsSummary').textContent.includes('12.8 s')", "genuinely old seconds-based measurement still rejects")
+        clock_page.click('#stop')
+        check(clock_page, "window.__contexts.every(ctx => ctx.state === 'closed')", "timestamp compatibility closes cleanly")
+        clock_page.close()
         # Some embedded Chromium releases support our audio and module APIs but
         # predate Array.prototype.at. A second GPS fix must still be processed.
         compatibility = browser.new_page()
