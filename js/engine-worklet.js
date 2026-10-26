@@ -1,5 +1,5 @@
-import { EngineSynth } from './engine-synth.js';
-import { ENGINE_PRESETS } from './engine-presets.js';
+import { EngineSynth } from './engine-synth.js?v=20261026-combustion';
+import { ENGINE_PRESETS } from './engine-presets.js?v=20261026-combustion';
 
 class V8Processor extends AudioWorkletProcessor {
   static get parameterDescriptors() {

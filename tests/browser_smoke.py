@@ -227,6 +227,11 @@ try:
             check(page, "document.querySelector('#rpm').textContent === '900'", "saved V12 starts at its own idle RPM")
             if not fallback:
                 check(page, "window.__worklets.at(-1).parameters.get('preset').value === 3", "saved V12 initializes actual Worklet")
+                # Chromium does not deliver a synthetic, untrusted processor
+                # error to its attribute handler. Invoke that browser callback
+                # boundary; recovery still creates the real native audio graph.
+                page.evaluate("window.__worklets.at(-1).onprocessorerror(new ErrorEvent('processorerror', { message: 'processor failed' }))")
+                check(page, "document.querySelector('#audioBackend').textContent.includes('Kompatibilität') && window.__contexts.at(-1).state === 'running'", "processor failure recovers into generated engine loops")
             page.click('#stop')
             check(page, "window.__contexts.every(ctx => ctx.state === 'closed')", "saved engine closes cleanly")
             page.close()
@@ -259,6 +264,22 @@ try:
         for signal in native:
             assert 0.01 < signal['rms'] and signal['peak'] < 0.96 and signal['ratio'] > 100, signal
             print('PASS native preset signal', signal['id'])
+
+        detailed = page.evaluate("""async () => {
+          const { checkNativeAudio } = await import('./tests/native-audio-checks.js');
+          return checkNativeAudio();
+        }""")
+        for signal in detailed['signals']:
+            assert 0.015 < signal['rms'] and signal['peak'] < 0.96, signal
+            assert signal['jump'] < 0.25 and abs(signal['mean']) < 0.015, signal
+            assert signal['pitch'] > 15, signal
+        for offset in range(0, len(detailed['signals']), 6):
+            idle, coast, power, redline, thin, deep = detailed['signals'][offset:offset+6]
+            assert power['rms'] > coast['rms'] * 1.5, (coast, power)
+            assert deep['low'] / thin['low'] > deep['high'] / thin['high'] * 1.2, (thin, deep)
+            print('PASS native RPM extremes, load, bass and continuous output', idle['id'])
+        assert detailed['bounded'] == {'voices': 4, 'sources': 25, 'stopped': True}, detailed['bounded']
+        print('PASS native loop cache stays bounded and stop releases all sources')
         page.close()
 
         # Module failure and cancellation during asynchronous startup use actual

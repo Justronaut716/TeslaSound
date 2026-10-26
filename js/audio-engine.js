@@ -1,5 +1,6 @@
 import { clamp } from './driving-model.js';
-import { getPreset } from './engine-presets.js';
+import { getPreset } from './engine-presets.js?v=20261026-combustion';
+import { createEngineLoops, loopWeights } from './engine-loops.js?v=20261026-combustion';
 
 export class AudioEngine {
   constructor(presetId) {
@@ -23,7 +24,7 @@ export class AudioEngine {
     if (this.ctx !== ctx || ctx.state === 'closed') return false;
     try {
       if (!ctx.audioWorklet || !window.AudioWorkletNode) throw new Error('AudioWorklet nicht verfügbar');
-      await ctx.audioWorklet.addModule(new URL('./engine-worklet.js', import.meta.url));
+      await ctx.audioWorklet.addModule(new URL('./engine-worklet.js?v=20261026-combustion', import.meta.url));
       if (this.ctx !== ctx || ctx.state === 'closed') return false;
       this.node = new AudioWorkletNode(ctx, 'teslasound-v8', {
         numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
@@ -65,56 +66,49 @@ export class AudioEngine {
 
   createFallbackVoice(preset) {
     const ctx = this.ctx;
-    const voice = { preset, oscillators: [] };
-    voice.tone = ctx.createGain(); voice.tone.gain.value = 0.2;
+    const voice = { preset, loops: [], boost: 0, updatedAt: ctx.currentTime };
+    voice.tone = ctx.createGain(); voice.tone.gain.value = 1;
     voice.lowpass = ctx.createBiquadFilter();
-    voice.lowpass.type = 'lowpass'; voice.lowpass.frequency.value = preset.cutoff; voice.lowpass.Q.value = 0.65;
+    voice.lowpass.type = 'lowpass'; voice.lowpass.frequency.value = 10000; voice.lowpass.Q.value = 0.65;
     voice.bass = ctx.createBiquadFilter();
     voice.bass.type = 'lowshelf'; voice.bass.frequency.value = preset.bodyHz;
     voice.fade = ctx.createGain(); voice.fade.gain.value = 0;
     const dc = ctx.createBiquadFilter(); dc.type = 'highpass'; dc.frequency.value = 18;
     const limiter = ctx.createWaveShaper();
-    limiter.curve = Float32Array.from({ length: 2049 }, (_, i) => 0.9 * Math.tanh((i / 1024 - 1) * 1.5));
+    limiter.curve = Float32Array.from({ length: 2049 }, (_, i) => 0.8 * Math.tanh((i / 1024 - 1) * 1.2));
+    const outputDC = ctx.createBiquadFilter(); outputDC.type = 'highpass'; outputDC.frequency.value = 18;
     // No compressor lookahead, convolution tail, ScriptProcessor or audio queue.
     voice.tone.connect(voice.lowpass); voice.lowpass.connect(voice.bass);
-    voice.bass.connect(dc); dc.connect(limiter); limiter.connect(voice.fade); voice.fade.connect(this.master);
-    for (const bank of [0, 1]) {
-      const real = new Float32Array(65), imag = new Float32Array(65);
-      for (let h = 1; h < real.length; h++) {
-        for (let cylinder = 0; cylinder < preset.cylinders; cylinder++) {
-          if (preset.banks[cylinder] !== bank) continue;
-          const phase = h * cylinder * 2 * Math.PI / preset.cylinders;
-          const envelope = preset.strength[cylinder] * 2 / preset.cylinders / (1 + (h * preset.decay * 60) ** 2);
-          real[h] += Math.cos(phase) * envelope;
-          imag[h] -= Math.sin(phase) * envelope;
-        }
-      }
-      const osc = ctx.createOscillator();
-      osc.setPeriodicWave(ctx.createPeriodicWave(real, imag));
-      osc.frequency.value = preset.idle / 120;
-      osc.connect(voice.tone); osc.start();
-      this.sources.push(osc); voice.oscillators.push(osc);
+    voice.bass.connect(dc); dc.connect(limiter); limiter.connect(outputDC);
+    outputDC.connect(voice.fade); voice.fade.connect(this.master);
+    const loops = createEngineLoops(ctx.sampleRate, preset.id);
+    voice.anchors = [loops[0].rpm, loops[2].rpm, loops[4].rpm];
+    const startAt = ctx.currentTime;
+    for (const loop of loops) {
+      const buffer = ctx.createBuffer(1, loop.data.length, ctx.sampleRate);
+      buffer.getChannelData(0).set(loop.data);
+      const source = ctx.createBufferSource(); source.buffer = buffer; source.loop = true;
+      source.playbackRate.value = preset.idle / loop.rpm;
+      const gain = ctx.createGain(); gain.gain.value = 0;
+      source.connect(gain); gain.connect(voice.tone); source.start(startAt);
+      voice.loops.push({ source, gain, rpm: loop.rpm }); this.sources.push(source);
     }
     const noiseFilter = ctx.createBiquadFilter(); noiseFilter.type = 'bandpass'; noiseFilter.frequency.value = preset.pipeHz * 2; noiseFilter.Q.value = 0.7;
     voice.noise = ctx.createGain(); voice.noise.gain.value = 0;
     this.noise.connect(noiseFilter); noiseFilter.connect(voice.noise); voice.noise.connect(voice.tone);
-    if (preset.turbo || preset.mechanical) {
-      voice.texture = ctx.createOscillator(); voice.texture.type = 'sine';
-      voice.textureGain = ctx.createGain(); voice.textureGain.gain.value = 0;
-      voice.texture.connect(voice.textureGain); voice.textureGain.connect(voice.bass);
-      voice.texture.start(); this.sources.push(voice.texture);
-    }
     return voice;
   }
 
   activateFallback(preset) {
+    // Preparing a new loop bank can take a moment on an embedded CPU. Keep
+    // the old engine audible until its replacement is ready, then crossfade.
+    let voice = this.voices.get(preset.id);
+    if (!voice) { voice = this.createFallbackVoice(preset); this.voices.set(preset.id, voice); }
     const now = this.ctx.currentTime;
     if (this.activeVoice) {
       this.activeVoice.fade.gain.cancelScheduledValues(now);
       this.activeVoice.fade.gain.setTargetAtTime(0, now, 0.012);
     }
-    let voice = this.voices.get(preset.id);
-    if (!voice) { voice = this.createFallbackVoice(preset); this.voices.set(preset.id, voice); }
     this.activeVoice = voice;
     this.updateFallback(voice, this.lastParams ?? { rpm: preset.idle, load: 0.035, overrun: 0, bass: 0.7 });
     voice.fade.gain.cancelScheduledValues(now);
@@ -135,15 +129,19 @@ export class AudioEngine {
       param.cancelScheduledValues(now);
       param.setTargetAtTime(value, now, 0.008);
     };
-    for (const osc of voice.oscillators) target(osc.frequency, rpm / 120);
-    target(voice.tone.gain, (0.13 + load * 0.25) * preset.level);
-    target(voice.lowpass.frequency, preset.cutoff + rpm * preset.cutoffRpm + load * preset.cutoffLoad);
-    target(voice.bass.gain, -4 + bass * preset.bodyGain / 1.8 * 12);
-    target(voice.noise.gain, 0.015 + load * load * preset.intake * 3 + overrun * 0.015);
-    if (voice.texture) {
-      target(voice.texture.frequency, preset.turbo ? 750 + load * 2200 + rpm * 0.08 : rpm * (preset.cylinders / 2 + 2) / 60);
-      target(voice.textureGain.gain, (preset.turbo || preset.mechanical) * load * 0.7);
+    const weights = loopWeights(voice.anchors, rpm, load);
+    for (let i = 0; i < voice.loops.length; i++) {
+      const loop = voice.loops[i];
+      target(loop.source.playbackRate, rpm / loop.rpm);
+      target(loop.gain.gain, weights[i]);
     }
+    const dt = Math.max(0, now - voice.updatedAt);
+    voice.boost += (load - voice.boost) * (1 - Math.exp(-dt / 0.18));
+    voice.updatedAt = now;
+    target(voice.tone.gain, 1 + overrun * 0.12);
+    target(voice.lowpass.frequency, Math.min(this.ctx.sampleRate * 0.42, 1800 + rpm * 0.6 + load * 5000));
+    target(voice.bass.gain, (bass - 0.5) * preset.bodyGain / 1.8 * 12);
+    target(voice.noise.gain, overrun * 0.012 + preset.turbo * Math.max(0, voice.boost - load) * 4);
   }
 
   update({ rpm, load, overrun, volume, bass }) {

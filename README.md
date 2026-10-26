@@ -88,7 +88,31 @@ Erkannt werden **Stand**, **Beschleunigen**, **konstante Fahrt**, **Verzögern/A
 
 Der V8-Synthesizer modelliert acht Zündereignisse je 720° mit ungleichmäßigen Impulsabständen in zwei Zylinderbänken, kleinen Zylinderabweichungen, Auspuffresonanzen, lastabhängigem Ansauggeräusch und zurückhaltender Schubtextur. Ein virtuelles Sechsganggetriebe besitzt Hysterese und kurze Lastunterbrechungen beim Schalten. Der Bassregler beeinflusst die Resonanzbalance. DC-Filter, Soft-Limiter sowie Ein-/Ausblendung begrenzen Pegel und vermeiden harte Übergänge.
 
-Falls der Tesla-Browser kein funktionierendes AudioWorklet bereitstellt, startet automatisch ein nativer Web-Audio-Rückfall mit zwei Zylinderbank-Wellenformen, Rauschanteil und Filtern. Dieser klingt anders als die vollständige Synthese; die aktive Engine erscheint in der Diagnose. Es gibt keinen `ScriptProcessor`-Rückfall mit großem JavaScript-Audiopuffer. Pausiert der Browser die Audiowiedergabe, erscheint **Audio fortsetzen**. Hintergrundwiedergabe ist vom Tesla-Browser abhängig und nicht garantiert.
+Die Verbrennung erzeugt kurze Druck- und Unterdruckwellen statt einfacher
+abklingender Pegelsprünge. Zwei Auspuffwege mit unterschiedlichen Laufzeiten
+und gedämpften Reflexionen erhalten den V8-Bankrhythmus. Kleine Schwankungen
+beim Zünden und im Leerlauf, lastabhängiges Auspuffröhren, pulsierendes
+Ansauggeräusch sowie Turbo- und Schubtextur machen Lastwechsel hörbar. Die
+anderen Presets besitzen eigene Pulsbreiten, Abgaswege und Resonanzen. Ein
+zusätzlicher DC-Filter nach der Sättigung entfernt auch dort entstehenden
+Gleichanteil; die Abstrahlungsdämpfung rundet scharfe Höhen bei hoher Drehzahl
+ab. Der Audiopfad besitzt einen direkten Signalanteil; Reflexionen
+fügen keinen vorgeschalteten Wiedergabepuffer hinzu.
+
+Falls der Tesla-Browser kein funktionierendes AudioWorklet bereitstellt,
+startet automatisch ein nativer Web-Audio-Rückfall mit **demselben Klangkern**.
+Er erzeugt pro ausgewähltem Preset lokal sechs kurze Klangschleifen: drei
+Drehzahlbereiche mit jeweils niedriger und hoher Last. Nahtlose Schleifen,
+laufende Anpassung der Wiedergaberate und kurze Überblendungen folgen Drehzahl
+und Last. Filter regeln Bass und Schubtextur. Die Schleifen werden erst bei
+Bedarf erzeugt und für höchstens vier Presets gehalten; beim Stoppen werden
+alle Quellen beendet und der AudioContext geschlossen. Bei einem erstmaligen
+Presetwechsel spielt der bisherige Motor während der Vorbereitung weiter.
+Es werden keine Aufnahmen heruntergeladen. Der Rückfall bleibt eine
+Annäherung an die kontinuierliche Synthese; die aktive Engine steht in der
+Diagnose. Es gibt keinen `ScriptProcessor` oder zusätzlichen JavaScript-
+Audiopuffer. Pausiert der Browser Audio, erscheint **Audio fortsetzen**.
+Hintergrundwiedergabe hängt vom Tesla-Browser ab.
 
 ## Entwicklung und Tests
 
@@ -102,7 +126,7 @@ npm test
 python3 -m http.server 8000
 ```
 
-Die deterministischen Tests prüfen Fahrszenarien, Rauschen, GPS-Ausfälle und Zeitstempel, Positions-Fallback, Ganghysterese, frühe Lastreaktion sowie Audiostabilität, Gleichanteil, Last- und Basswirkung bei 44,1/48 kHz.
+Die deterministischen Tests prüfen Fahrszenarien, Rauschen, GPS-Ausfälle und Zeitstempel, Positions-Fallback, Ganghysterese, frühe Lastreaktion sowie Audiostabilität, Gleichanteil, Last- und Basswirkung bei 44,1/48 kHz. Dazu kommen der V8-Bankrhythmus, Schleifentonhöhe, Übergänge und normalisierte Drehzahl-/Lastmischung.
 
 Der Integrationstest verwendet echtes Chromium und Python Playwright (nur als Entwicklungswerkzeug):
 
@@ -112,7 +136,7 @@ python3 -m playwright install chromium
 npm run test:browser
 ```
 
-Ein bereits installiertes `chromium` wird automatisch verwendet. Alternativ `CHROMIUM_PATH` auf eine Browser-Binärdatei setzen. Ohne System-Chromium nutzt Playwright seinen installierten Browser. Der Test prüft beide Audio-Engines, simulierte und GPS-basierte Fahrzustände, Datenverlust, Berechtigungsfehler, Pause/Fortsetzen, Neustart und Ressourcenfreigabe. Screenshots landen im ignorierten Verzeichnis `artifacts/`.
+Ein bereits installiertes `chromium` wird automatisch verwendet. Alternativ `CHROMIUM_PATH` auf eine Browser-Binärdatei setzen. Ohne System-Chromium nutzt Playwright seinen installierten Browser. Der Test prüft beide Audio-Engines, simulierte und GPS-basierte Fahrzustände, Datenverlust, Berechtigungsfehler, Pause/Fortsetzen, Neustart und Ressourcenfreigabe. Echte `OfflineAudioContext`-Renderings prüfen außerdem alle vier nativen Presets bei Leerlauf und Höchstdrehzahl, Last- und Basswirkung sowie die begrenzte Anzahl der Klangquellen. Screenshots landen im ignorierten Verzeichnis `artifacts/`.
 
 ### Prüfung im Fahrzeug
 
@@ -125,7 +149,8 @@ Chromium-Tests sind keine Messung im Tesla. Vor der Verwendung im Tesla im Stand
 | `js/driving-model.js` | GPS-Prüfung, Geschwindigkeitsschätzung, Fahrzustände |
 | `js/gps-input.js` | GPS-Eingabe, getrennte Qualitätsprüfung und Rohdaten-Diagnose |
 | `js/drivetrain.js` | Last, Drehzahl, virtuelle Schaltvorgänge |
-| `js/v8-synth.js` | Deterministischer V8-Signalprozessor |
+| `js/v8-synth.js` | Verbrennungsimpulse, Zylinderbänke und Auspuffwege für alle Presets |
+| `js/engine-loops.js` | Lokale native Klangschleifen und Drehzahl-/Lastmischung |
 | `js/engine-worklet.js` | Audio-Thread und AudioParams |
 | `js/audio-engine.js` | Audiograph, nativer Rückfall, Diagnose, Lebenszyklus |
 | `js/app.js` | GPS, Testmodus, Regeltakt und Bedienoberfläche |
