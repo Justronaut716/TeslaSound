@@ -1,5 +1,5 @@
 import { clamp } from './driving-model.js';
-import { getPreset } from './engine-presets.js';
+import { getPreset } from './engine-presets.js?v=20261026-combustion';
 
 const RATIOS = [3.4, 2.3, 1.62, 1.2, 0.96, 0.78];
 const UPSHIFT = [10, 18, 28, 40, 55]; // m/s; downshifts have a separate boundary.

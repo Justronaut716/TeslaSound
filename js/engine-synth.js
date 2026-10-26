@@ -1,5 +1,5 @@
-import { V8Synth } from './v8-synth.js';
-import { getPreset } from './engine-presets.js';
+import { V8Synth } from './v8-synth.js?v=20261026-combustion';
+import { getPreset } from './engine-presets.js?v=20261026-combustion';
 
 // At most two engines run during a 45-ms crossfade. Rapid selections replace
 // one pending ID rather than creating an audio queue or an unbounded voice list.

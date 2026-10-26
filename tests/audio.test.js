@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { V8Synth } from '../js/v8-synth.js';
+import { ENGINE_PRESETS } from '../js/engine-presets.js';
 
 const rms = data => Math.sqrt(data.reduce((sum, x) => sum + x * x, 0) / data.length);
 function signal(rpm, load, rate = 48000, overrun = 0, bass = 0.7) {
@@ -68,4 +69,32 @@ test('scalar and AudioParam-array input agree within Float32 precision', () => {
   new V8Synth(48000).render(parameter, new Float32Array([2500]), new Float32Array([0.5]), new Float32Array([0.2]), new Float32Array([0.7]));
   const maxError = scalar.reduce((error, x, i) => Math.max(error, Math.abs(x - parameter[i])), 0);
   assert(maxError < 0.000001, `Float32 parameter error: ${maxError}`);
+});
+
+test('V8 exposes the cross-plane bank rhythm alongside its main firing tone', () => {
+  const data = signal(3000, 0.8);
+  const energy = hz => {
+    let re = 0, im = 0;
+    for (let i = 0; i < data.length; i++) {
+      const phase = i * 2 * Math.PI * hz / 48000;
+      re += data[i] * Math.cos(phase); im += data[i] * Math.sin(phase);
+    }
+    return re * re + im * im;
+  };
+  // At 3000 RPM the complete 720-degree pattern repeats at 25 Hz.
+  // Its 50/75/100-Hz bank rhythm should survive mixing, rather than being
+  // almost completely cancelled into the uniform 200-Hz firing buzz.
+  const bankEnergy = energy(50) + energy(75) + energy(100);
+  assert(bankEnergy > energy(200) * 0.035, 'cross-plane exhaust rhythm is lost in the mono mix');
+});
+
+test('redline pressure peaks retain headroom without harsh single-sample edges', () => {
+  for (const p of ENGINE_PRESETS) {
+    const synth = new V8Synth(48000, p.id), data = new Float32Array(48000);
+    synth.render(data, p.redline, 1, 0, 1);
+    synth.render(data, p.redline, 1, 0, 1);
+    let jump = 0;
+    for (let i = 1; i < data.length; i++) jump = Math.max(jump, Math.abs(data[i] - data[i - 1]));
+    assert(jump < 0.25, `${p.id}: excessive high-frequency saturation edge ${jump}`);
+  }
 });

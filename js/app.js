@@ -1,9 +1,9 @@
 import { DrivingModel, speedFromPosition, clamp } from './driving-model.js?v=20261025-clock';
 import { GPS_LIMITS, readGPSPosition } from './gps-input.js?v=20261025-clock';
-import { Drivetrain } from './drivetrain.js';
-import { AudioEngine } from './audio-engine.js';
+import { Drivetrain } from './drivetrain.js?v=20261026-combustion';
+import { AudioEngine } from './audio-engine.js?v=20261026-combustion';
 import { PhonePlaybackSession } from './phone-playback.js';
-import { ENGINE_PRESETS, getPreset } from './engine-presets.js';
+import { ENGINE_PRESETS, getPreset } from './engine-presets.js?v=20261026-combustion';
 
 const el = id => document.getElementById(id);
 const model = new DrivingModel(), drivetrain = new Drivetrain();
